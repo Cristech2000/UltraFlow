@@ -3,12 +3,14 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/common/ProtectedRoute';
+import RoleGuard from './components/common/RoleGuard';
 import MainLayout from './layouts/MainLayout';
 import AuthLayout from './layouts/AuthLayout';
 import Login from './pages/Login';
 import SignUp from './pages/SignUp';
 import ForgotPassword from './pages/ForgotPassword';
 import Dashboard from './pages/Dashboard';
+import Profile from './pages/Profile';
 import Projects from './pages/Projects';
 import ProjectDetail from './pages/ProjectDetail';
 import Timeline from './pages/Timeline';
@@ -47,6 +49,7 @@ function App() {
               }
             >
               <Route index element={<Dashboard />} />
+              <Route path="profile" element={<Profile />} />
               <Route path="projects" element={<Projects />} />
               <Route path="projects/:projectId" element={<ProjectDetail />} />
               <Route path="timeline" element={<Timeline />} />

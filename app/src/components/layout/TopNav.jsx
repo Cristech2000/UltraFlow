@@ -10,16 +10,20 @@ import {
   User,
   LogOut,
   ChevronDown,
+  Settings,
+  UserCircle,
+  Shield,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../hooks/useTheme';
 import Breadcrumb from './Breadcrumb';
+import Avatar from '../common/Avatar';
 import { cn } from '../../lib/utils';
 
 function TopNav({ onMenuClick }) {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const { user, signOut } = useAuth();
+  const { user, userProfile, signOut } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
 
@@ -35,9 +39,16 @@ function TopNav({ onMenuClick }) {
   const handleSearch = (e) => {
     e.preventDefault();
     if (searchQuery.trim()) {
-      // Implement search logic
       console.log('Searching for:', searchQuery);
     }
+  };
+
+  const getRoleDisplay = (role) => {
+    if (!role) return 'User';
+    return role
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
   };
 
   return (
@@ -97,11 +108,22 @@ function TopNav({ onMenuClick }) {
             <button
               onClick={() => setShowProfileMenu(!showProfileMenu)}
               className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              aria-label="User menu"
             >
-              <div className="w-8 h-8 rounded-full bg-primary-500 flex items-center justify-center text-white text-sm font-bold">
-                {user?.displayName?.[0] || user?.email?.[0] || 'U'}
+              <Avatar
+                src={userProfile?.photoURL}
+                name={userProfile?.fullName || user?.displayName || user?.email}
+                size="sm"
+              />
+              <div className="hidden md:block text-left">
+                <p className="text-sm font-medium text-gray-900 dark:text-white">
+                  {userProfile?.fullName || user?.displayName || 'User'}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {getRoleDisplay(userProfile?.role)}
+                </p>
               </div>
-              <ChevronDown size={16} className="text-gray-400" />
+              <ChevronDown size={16} className="text-gray-400 hidden md:block" />
             </button>
 
             {showProfileMenu && (
@@ -114,23 +136,76 @@ function TopNav({ onMenuClick }) {
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 10 }}
-                  className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-20 overflow-hidden"
+                  className="absolute right-0 mt-2 w-64 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-20 overflow-hidden"
                 >
+                  {/* User Info */}
                   <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-                    <p className="text-sm font-medium">
-                      {user?.displayName || 'User'}
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                      {user?.email}
-                    </p>
+                    <div className="flex items-center gap-3">
+                      <Avatar
+                        src={userProfile?.photoURL}
+                        name={userProfile?.fullName || user?.displayName || user?.email}
+                        size="lg"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                          {userProfile?.fullName || user?.displayName || 'User'}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                          {user?.email}
+                        </p>
+                        <p className="text-xs text-primary-600 dark:text-primary-400 mt-0.5">
+                          {getRoleDisplay(userProfile?.role)}
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                  <button
-                    onClick={handleSignOut}
-                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                  >
-                    <LogOut size={16} />
-                    Sign Out
-                  </button>
+
+                  {/* Menu Items */}
+                  <div className="py-1">
+                    <button
+                      onClick={() => {
+                        setShowProfileMenu(false);
+                        navigate('/profile');
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                    >
+                      <UserCircle size={16} />
+                      My Profile
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowProfileMenu(false);
+                        navigate('/settings');
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                    >
+                      <Settings size={16} />
+                      Settings
+                    </button>
+                    {userProfile?.role === 'director' && (
+                      <button
+                        onClick={() => {
+                          setShowProfileMenu(false);
+                          navigate('/admin');
+                        }}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                      >
+                        <Shield size={16} />
+                        Admin Panel
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Sign Out */}
+                  <div className="border-t border-gray-200 dark:border-gray-700 py-1">
+                    <button
+                      onClick={handleSignOut}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                    >
+                      <LogOut size={16} />
+                      Sign Out
+                    </button>
+                  </div>
                 </motion.div>
               </>
             )}
