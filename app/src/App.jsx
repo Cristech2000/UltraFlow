@@ -11,6 +11,7 @@ import SignUp from './pages/SignUp';
 import ForgotPassword from './pages/ForgotPassword';
 import Dashboard from './pages/Dashboard';
 import Profile from './pages/Profile';
+import UserManagement from './pages/UserManagement';
 import Projects from './pages/Projects';
 import ProjectDetail from './pages/ProjectDetail';
 import Timeline from './pages/Timeline';
@@ -60,6 +61,16 @@ function App() {
               <Route path="analytics" element={<Analytics />} />
               <Route path="people" element={<People />} />
               <Route path="settings" element={<Settings />} />
+              
+              {/* Admin Routes - HR and Director only */}
+              <Route
+                path="admin/users"
+                element={
+                  <RoleGuard roles={['hr', 'director']}>
+                    <UserManagement />
+                  </RoleGuard>
+                }
+              />
             </Route>
           </Routes>
         </BrowserRouter>

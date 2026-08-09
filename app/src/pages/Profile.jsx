@@ -8,6 +8,7 @@ import Input from '../components/common/Input';
 import Avatar from '../components/common/Avatar';
 import Badge from '../components/common/Badge';
 import { User, Mail, Phone, Briefcase, Building2, CheckCircle, AlertCircle } from 'lucide-react';
+import { getRoleDisplayName } from '../constants/roles';
 
 function Profile() {
   const { user, userProfile, refreshProfile, loading } = useAuth();
@@ -64,7 +65,6 @@ function Profile() {
   };
 
   const cancelEdit = () => {
-    // Reset form data
     setFormData({
       fullName: userProfile?.fullName || '',
       phone: userProfile?.phone || '',
@@ -74,13 +74,7 @@ function Profile() {
     setSaveError('');
   };
 
-  const getRoleDisplay = (role) => {
-    if (!role) return 'User';
-    return role
-      .split('_')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
-  };
+  const roleDisplayName = getRoleDisplayName(userProfile?.role);
 
   const getStatusBadge = (status) => {
     const variants = {
@@ -122,7 +116,6 @@ function Profile() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">My Profile</h1>
@@ -135,10 +128,8 @@ function Profile() {
         )}
       </div>
 
-      {/* Profile Card */}
       <Card className="p-6">
         <div className="flex flex-col lg:flex-row gap-8">
-          {/* Avatar Section */}
           <div className="flex flex-col items-center lg:items-start gap-4">
             <Avatar
               src={userProfile.photoURL}
@@ -161,7 +152,6 @@ function Profile() {
             )}
           </div>
 
-          {/* Info Section */}
           <div className="flex-1">
             {isEditing ? (
               <form onSubmit={handleSubmit} className="space-y-4">
@@ -230,7 +220,7 @@ function Profile() {
                   </h2>
                   <div className="flex items-center gap-2 mt-1">
                     <Badge variant="primary" size="sm">
-                      {getRoleDisplay(userProfile.role)}
+                      {roleDisplayName}
                     </Badge>
                     {getStatusBadge(userProfile.status)}
                   </div>
@@ -257,13 +247,12 @@ function Profile() {
         </div>
       </Card>
 
-      {/* Role Information */}
       <Card title="Role Information" subtitle="Your permissions and access level">
         <div className="space-y-2">
           <div className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-800">
             <span className="text-sm text-gray-600 dark:text-gray-300">Role</span>
             <span className="text-sm font-medium text-gray-900 dark:text-white">
-              {getRoleDisplay(userProfile.role)}
+              {roleDisplayName}
             </span>
           </div>
           <div className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-800">

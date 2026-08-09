@@ -19,6 +19,7 @@ import { useTheme } from '../../hooks/useTheme';
 import Breadcrumb from './Breadcrumb';
 import Avatar from '../common/Avatar';
 import { cn } from '../../lib/utils';
+import { getRoleDisplayName } from '../../constants/roles';
 
 function TopNav({ onMenuClick }) {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -43,13 +44,8 @@ function TopNav({ onMenuClick }) {
     }
   };
 
-  const getRoleDisplay = (role) => {
-    if (!role) return 'User';
-    return role
-      .split('_')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
-  };
+  const roleDisplayName = getRoleDisplayName(userProfile?.role);
+  const isAdmin = ['hr', 'director'].includes(userProfile?.role);
 
   return (
     <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-20">
@@ -120,7 +116,7 @@ function TopNav({ onMenuClick }) {
                   {userProfile?.fullName || user?.displayName || 'User'}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {getRoleDisplay(userProfile?.role)}
+                  {roleDisplayName}
                 </p>
               </div>
               <ChevronDown size={16} className="text-gray-400 hidden md:block" />
@@ -154,14 +150,17 @@ function TopNav({ onMenuClick }) {
                           {user?.email}
                         </p>
                         <p className="text-xs text-primary-600 dark:text-primary-400 mt-0.5">
-                          {getRoleDisplay(userProfile?.role)}
+                          {roleDisplayName}
                         </p>
                       </div>
                     </div>
                   </div>
 
-                  {/* Menu Items */}
+                  {/* ============================================ */}
+                  {/* MENU ITEMS - ADD THE ADMIN LINK HERE */}
+                  {/* ============================================ */}
                   <div className="py-1">
+                    {/* My Profile - Always visible */}
                     <button
                       onClick={() => {
                         setShowProfileMenu(false);
@@ -172,6 +171,8 @@ function TopNav({ onMenuClick }) {
                       <UserCircle size={16} />
                       My Profile
                     </button>
+
+                    {/* Settings - Always visible */}
                     <button
                       onClick={() => {
                         setShowProfileMenu(false);
@@ -182,16 +183,22 @@ function TopNav({ onMenuClick }) {
                       <Settings size={16} />
                       Settings
                     </button>
-                    {userProfile?.role === 'director' && (
+
+                    {/* ========================================== */}
+                    {/* 🔴 ADMIN LINK - Added right here */}
+                    {/* Only visible to HR and Directors */}
+                    {/* ========================================== */}
+                    {isAdmin && (
                       <button
                         onClick={() => {
                           setShowProfileMenu(false);
-                          navigate('/admin');
+                          navigate('/admin/users');
                         }}
-                        className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                        className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors border-t border-gray-100 dark:border-gray-800 mt-1 pt-2"
                       >
-                        <Shield size={16} />
-                        Admin Panel
+                        <Shield size={16} className="text-primary-500" />
+                        <span className="font-medium">User Management</span>
+                        <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">Admin</span>
                       </button>
                     )}
                   </div>

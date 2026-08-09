@@ -1,5 +1,5 @@
 import { database } from '../lib/firebase';
-import { ref, set, get, update, child, push, onValue } from 'firebase/database';
+import { ref, set, get, update, child, push, onValue, remove } from 'firebase/database';
 
 /**
  * User Service - Handles all Realtime Database operations for users
@@ -20,7 +20,7 @@ export async function createUserProfile(userId, userData) {
       fullName: userData.fullName || '',
       email: userData.email || '',
       phone: userData.phone || '',
-      role: 'documentation_assistant', // Default role
+      role: 'documentation_assistant', // Default role - Site Secretary
       organizationId: 'ultrapower', // Default organization
       status: 'active',
       photoURL: userData.photoURL || '',
@@ -112,7 +112,7 @@ export async function userHasRole(userId, requiredRole) {
 }
 
 /**
- * List all users (Admin only)
+ * List all users
  */
 export async function listAllUsers() {
   try {
@@ -142,6 +142,159 @@ export async function getUsersByRole(role) {
     return allUsers.filter(user => user.role === role);
   } catch (error) {
     console.error('Error getting users by role:', error);
+    return [];
+  }
+}
+
+/**
+ * Update user role (HR/Director only)
+ */
+export async function updateUserRole(userId, newRole, currentUserRole) {
+  try {
+    // Check if current user has permission
+    if (!['hr', 'director'].includes(currentUserRole)) {
+      throw new Error('You do not have permission to change roles');
+    }
+    
+    // Only Director can assign Director role
+    if (newRole === 'director' && currentUserRole !== 'director') {
+      throw new Error('Only Directors can assign the Director role');
+    }
+    
+    // Prevent changing your own role to something else
+    const currentProfile = await getUserProfile(userId);
+    if (currentProfile && currentProfile.role === currentUserRole) {
+      // You can change your own role if you're Director or HR
+      // But HR cannot remove their own HR status without Director
+      if (currentUserRole === 'hr' && newRole !== 'hr') {
+        throw new Error('HR cannot change their own role. Please contact a Director.');
+      }
+    }
+    
+    const userRef = ref(database, `${USERS_PATH}/${userId}`);
+    await update(userRef, {
+      role: newRole,
+      updatedAt: new Date().toISOString(),
+    });
+    
+    return await getUserProfile(userId);
+  } catch (error) {
+    console.error('Error updating user role:', error);
+    throw error;
+  }
+}
+
+/**
+ * Update user status (Active/Inactive/Suspended)
+ */
+export async function updateUserStatus(userId, newStatus, currentUserRole) {
+  try {
+    // Check if current user has permission
+    if (!['hr', 'director'].includes(currentUserRole)) {
+      throw new Error('You do not have permission to change user status');
+    }
+    
+    const userRef = ref(database, `${USERS_PATH}/${userId}`);
+    await update(userRef, {
+      status: newStatus,
+      updatedAt: new Date().toISOString(),
+    });
+    
+    return await getUserProfile(userId);
+  } catch (error) {
+    console.error('Error updating user status:', error);
+    throw error;
+  }
+}
+
+/**
+ * Delete user (HR/Director only)
+ */
+export async function deleteUser(userId, currentUserRole) {
+  try {
+    // Check if current user has permission
+    if (!['hr', 'director'].includes(currentUserRole)) {
+      throw new Error('You do not have permission to delete users');
+    }
+    
+    // Prevent deleting self
+    const currentProfile = await getUserProfile(userId);
+    if (currentProfile && currentProfile.uid === userId) {
+      throw new Error('You cannot delete your own account');
+    }
+    
+    const userRef = ref(database, `${USERS_PATH}/${userId}`);
+    await remove(userRef);
+    return true;
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get user by email
+ */
+export async function getUserByEmail(email) {
+  try {
+    const allUsers = await listAllUsers();
+    return allUsers.find(user => user.email === email) || null;
+  } catch (error) {
+    console.error('Error getting user by email:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get user by full name
+ */
+export async function getUsersByName(name) {
+  try {
+    const allUsers = await listAllUsers();
+    return allUsers.filter(user => 
+      user.fullName && user.fullName.toLowerCase().includes(name.toLowerCase())
+    );
+  } catch (error) {
+    console.error('Error getting users by name:', error);
+    return [];
+  }
+}
+
+/**
+ * Get all active users
+ */
+export async function getActiveUsers() {
+  try {
+    const allUsers = await listAllUsers();
+    return allUsers.filter(user => user.status === 'active');
+  } catch (error) {
+    console.error('Error getting active users:', error);
+    return [];
+  }
+}
+
+/**
+ * Get all inactive users
+ */
+export async function getInactiveUsers() {
+  try {
+    const allUsers = await listAllUsers();
+    return allUsers.filter(user => user.status === 'inactive');
+  } catch (error) {
+    console.error('Error getting inactive users:', error);
+    return [];
+  }
+}
+
+/**
+ * Get all suspended users
+ */
+export async function getSuspendedUsers() {
+  try {
+    const allUsers = await listAllUsers();
+    return allUsers.filter(user => user.status === 'suspended');
+  } catch (error) {
+    console.error('Error getting suspended users:', error);
     return [];
   }
 }
