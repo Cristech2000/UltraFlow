@@ -1,5 +1,5 @@
 import { database } from '../lib/firebase';
-import { ref, set, get, update, push, remove, query, orderByChild, equalTo } from 'firebase/database';
+import { ref, set, get, update, push, remove } from 'firebase/database';
 
 /**
  * Space Service - Handles Buildings, Floors, Wings, and Spaces
@@ -52,7 +52,7 @@ export async function getBuildingsByProject(projectId) {
     return [];
   } catch (error) {
     console.error('Error fetching buildings:', error);
-    throw error;
+    return [];
   }
 }
 
@@ -130,7 +130,7 @@ export async function getFloorsByBuilding(buildingId) {
     return [];
   } catch (error) {
     console.error('Error fetching floors:', error);
-    throw error;
+    return [];
   }
 }
 
@@ -208,7 +208,7 @@ export async function getWingsByFloor(floorId) {
     return [];
   } catch (error) {
     console.error('Error fetching wings:', error);
-    throw error;
+    return [];
   }
 }
 
@@ -243,7 +243,7 @@ export async function updateWing(wingId, updates) {
 
 const SPACES_PATH = 'spaces';
 
-const SPACE_TYPES = [
+export const SPACE_TYPES = [
   'Bedroom',
   'Bathroom',
   'Kitchen',
@@ -268,6 +268,8 @@ const SPACE_TYPES = [
 
 export async function createSpace(spaceData, wingId, floorId, buildingId, projectId, userId) {
   try {
+    console.log('📝 Creating space with data:', { spaceData, wingId, floorId, buildingId, projectId });
+    
     // Verify parent exists
     const wing = await getWing(wingId);
     if (!wing) {
@@ -295,67 +297,110 @@ export async function createSpace(spaceData, wingId, floorId, buildingId, projec
     };
 
     await set(newSpaceRef, space);
+    console.log('✅ Space created successfully:', space);
     return space;
   } catch (error) {
-    console.error('Error creating space:', error);
+    console.error('❌ Error creating space:', error);
     throw error;
   }
 }
 
 export async function getSpacesByWing(wingId) {
   try {
+    console.log('🔍 Fetching spaces for wing:', wingId);
     const spacesRef = ref(database, SPACES_PATH);
     const snapshot = await get(spacesRef);
     
     if (snapshot.exists()) {
       const spaces = snapshot.val();
-      return Object.keys(spaces)
-        .map(key => ({ ...spaces[key] }))
+      console.log('📦 All spaces in database:', spaces);
+      
+      const result = Object.keys(spaces)
+        .map(key => {
+          const space = spaces[key];
+          console.log(`  - Space ${key}:`, space);
+          return { ...space };
+        })
         .filter(space => space.wingId === wingId)
         .sort((a, b) => a.name.localeCompare(b.name));
+      
+      console.log(`✅ Found ${result.length} spaces for wing ${wingId}:`, result);
+      return result;
     }
+    console.log('ℹ️ No spaces found in database');
     return [];
   } catch (error) {
-    console.error('Error fetching spaces:', error);
-    throw error;
+    console.error('❌ Error fetching spaces by wing:', error);
+    return [];
   }
 }
 
 export async function getSpacesByFloor(floorId) {
   try {
+    console.log('🔍 Fetching spaces for floor:', floorId);
     const spacesRef = ref(database, SPACES_PATH);
     const snapshot = await get(spacesRef);
     
     if (snapshot.exists()) {
       const spaces = snapshot.val();
-      return Object.keys(spaces)
+      const result = Object.keys(spaces)
         .map(key => ({ ...spaces[key] }))
         .filter(space => space.floorId === floorId)
         .sort((a, b) => a.name.localeCompare(b.name));
+      console.log(`✅ Found ${result.length} spaces for floor ${floorId}:`, result);
+      return result;
     }
+    console.log('ℹ️ No spaces found for floor:', floorId);
     return [];
   } catch (error) {
-    console.error('Error fetching spaces:', error);
-    throw error;
+    console.error('Error fetching spaces by floor:', error);
+    return [];
   }
 }
 
 export async function getSpacesByBuilding(buildingId) {
   try {
+    console.log('🔍 Fetching spaces for building:', buildingId);
     const spacesRef = ref(database, SPACES_PATH);
     const snapshot = await get(spacesRef);
     
     if (snapshot.exists()) {
       const spaces = snapshot.val();
-      return Object.keys(spaces)
+      const result = Object.keys(spaces)
         .map(key => ({ ...spaces[key] }))
         .filter(space => space.buildingId === buildingId)
         .sort((a, b) => a.name.localeCompare(b.name));
+      console.log(`✅ Found ${result.length} spaces for building ${buildingId}:`, result);
+      return result;
     }
+    console.log('ℹ️ No spaces found for building:', buildingId);
     return [];
   } catch (error) {
-    console.error('Error fetching spaces:', error);
-    throw error;
+    console.error('Error fetching spaces by building:', error);
+    return [];
+  }
+}
+
+export async function getSpacesByProject(projectId) {
+  try {
+    console.log('🔍 Fetching spaces for project:', projectId);
+    const spacesRef = ref(database, SPACES_PATH);
+    const snapshot = await get(spacesRef);
+    
+    if (snapshot.exists()) {
+      const spaces = snapshot.val();
+      const result = Object.keys(spaces)
+        .map(key => ({ ...spaces[key] }))
+        .filter(space => space.projectId === projectId)
+        .sort((a, b) => a.name.localeCompare(b.name));
+      console.log(`✅ Found ${result.length} spaces for project ${projectId}:`, result);
+      return result;
+    }
+    console.log('ℹ️ No spaces found for project:', projectId);
+    return [];
+  } catch (error) {
+    console.error('Error fetching spaces by project:', error);
+    return [];
   }
 }
 
@@ -397,6 +442,3 @@ export async function deleteSpace(spaceId) {
     throw error;
   }
 }
-
-// Export space types
-export { SPACE_TYPES };

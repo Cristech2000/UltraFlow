@@ -14,6 +14,7 @@ import Profile from './pages/Profile';
 import UserManagement from './pages/UserManagement';
 import Projects from './pages/Projects';
 import ProjectDetail from './pages/ProjectDetail';
+import SpaceDetail from './pages/SpaceDetail';
 import Timeline from './pages/Timeline';
 import Reports from './pages/Reports';
 import Assessments from './pages/Assessments';
@@ -53,6 +54,7 @@ function App() {
               <Route path="profile" element={<Profile />} />
               <Route path="projects" element={<Projects />} />
               <Route path="projects/:projectId" element={<ProjectDetail />} />
+              <Route path="spaces/:spaceId" element={<SpaceDetail />} />
               <Route path="timeline" element={<Timeline />} />
               <Route path="reports" element={<Reports />} />
               <Route path="assessments" element={<Assessments />} />

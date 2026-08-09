@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowLeft, 
   Building2, 
@@ -12,13 +12,14 @@ import {
   ChevronRight,
   Edit2,
   Home,
+  X,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { getProject } from '../services/projectService';
 import { 
   getBuildingsByProject, 
   getFloorsByBuilding,
-  getSpacesByFloor,
+  getSpacesByWing,
   getWingsByFloor,
   createBuilding,
   createFloor,
@@ -29,6 +30,7 @@ import {
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import Badge from '../components/common/Badge';
+import Input from '../components/common/Input';
 import { STATUS_DISPLAY_NAMES, getStatusColor } from '../constants/status';
 
 function ProjectDetail() {
@@ -111,7 +113,9 @@ function ProjectDetail() {
   // Load spaces for a wing
   const loadSpaces = async (wingId) => {
     try {
+      console.log('📡 Calling getSpacesByWing for wing:', wingId);
       const spaces = await getSpacesByWing(wingId);
+      console.log('📦 Spaces returned:', spaces);
       return spaces;
     } catch (err) {
       console.error('Error loading spaces:', err);
@@ -121,6 +125,8 @@ function ProjectDetail() {
 
   // Toggle building expansion
   const toggleBuilding = async (buildingId) => {
+    console.log('🔄 Toggling building:', buildingId);
+    
     if (expandedBuilding === buildingId) {
       setExpandedBuilding(null);
       setExpandedFloor(null);
@@ -129,7 +135,6 @@ function ProjectDetail() {
     setExpandedBuilding(buildingId);
     setExpandedFloor(null);
     
-    // Load floors for this building
     const building = buildings.find(b => b.buildingId === buildingId);
     if (building) {
       const floors = await loadFloors(buildingId);
@@ -141,13 +146,14 @@ function ProjectDetail() {
 
   // Toggle floor expansion
   const toggleFloor = async (buildingId, floorId) => {
+    console.log('🔄 Toggling floor:', floorId);
+    
     if (expandedFloor === floorId) {
       setExpandedFloor(null);
       return;
     }
     setExpandedFloor(floorId);
     
-    // Load wings for this floor
     const building = buildings.find(b => b.buildingId === buildingId);
     if (building) {
       const floor = building.floors?.find(f => f.floorId === floorId);
@@ -167,30 +173,51 @@ function ProjectDetail() {
 
   // Toggle wing expansion
   const toggleWing = async (buildingId, floorId, wingId) => {
-    // Load spaces for this wing
+    console.log('🔄 Toggling wing:', { buildingId, floorId, wingId });
+    
     const building = buildings.find(b => b.buildingId === buildingId);
-    if (building) {
-      const floor = building.floors?.find(f => f.floorId === floorId);
-      if (floor) {
-        const wing = floor.wings?.find(w => w.wingId === wingId);
-        if (wing && !wing.spaces) {
-          const spaces = await loadSpaces(wingId);
-          setBuildings(prev => prev.map(b => 
-            b.buildingId === buildingId ? {
-              ...b,
-              floors: b.floors?.map(f => 
-                f.floorId === floorId ? {
-                  ...f,
-                  wings: f.wings?.map(w => 
-                    w.wingId === wingId ? { ...w, spaces } : w
-                  )
-                } : f
-              )
-            } : b
-          ));
-        }
-      }
+    if (!building) {
+      console.error('❌ Building not found:', buildingId);
+      return;
     }
+    
+    const floor = building.floors?.find(f => f.floorId === floorId);
+    if (!floor) {
+      console.error('❌ Floor not found:', floorId);
+      return;
+    }
+    
+    const wing = floor.wings?.find(w => w.wingId === wingId);
+    if (!wing) {
+      console.error('❌ Wing not found:', wingId);
+      return;
+    }
+    
+    // If wing already has spaces loaded, don't reload
+    if (wing.spaces) {
+      console.log('ℹ️ Wing already has spaces:', wing.spaces.length);
+      return;
+    }
+    
+    console.log('📡 Loading spaces for wing:', wingId);
+    const spaces = await loadSpaces(wingId);
+    console.log('📦 Spaces loaded for wing:', spaces);
+    
+    setBuildings(prev => prev.map(b => 
+      b.buildingId === buildingId ? {
+        ...b,
+        floors: b.floors?.map(f => 
+          f.floorId === floorId ? {
+            ...f,
+            wings: f.wings?.map(w => 
+              w.wingId === wingId ? { ...w, spaces } : w
+            )
+          } : f
+        )
+      } : b
+    ));
+    
+    console.log('✅ Wing updated with spaces');
   };
 
   // Create building
@@ -218,9 +245,7 @@ function ProjectDetail() {
       setShowFloorForm(false);
       setFloorForm({ name: '', levelNumber: 0, code: '', status: 'active' });
       setSelectedBuilding(null);
-      // Refresh the building with new floor
       await loadData();
-      // Re-expand the building
       if (selectedBuilding) {
         await toggleBuilding(selectedBuilding);
       }
@@ -445,15 +470,13 @@ function ProjectDetail() {
                   setSelectedWing(wingId);
                   setShowSpaceForm(true);
                 }}
-                projectId={projectId}
-                userUid={user?.uid}
               />
             ))}
           </div>
         )}
       </div>
 
-      {/* Building Form Modal */}
+      {/* Modals */}
       {showBuildingForm && (
         <Modal
           title="Add Building"
@@ -501,7 +524,6 @@ function ProjectDetail() {
         </Modal>
       )}
 
-      {/* Floor Form Modal */}
       {showFloorForm && (
         <Modal
           title="Add Floor"
@@ -550,7 +572,6 @@ function ProjectDetail() {
         </Modal>
       )}
 
-      {/* Wing Form Modal */}
       {showWingForm && (
         <Modal
           title="Add Wing"
@@ -598,7 +619,6 @@ function ProjectDetail() {
         </Modal>
       )}
 
-      {/* Space Form Modal */}
       {showSpaceForm && (
         <Modal
           title="Add Space"
@@ -729,13 +749,12 @@ function BuildingItem({
   isExpanded, 
   onToggle, 
   onToggleFloor,
+  onToggleWing,
   expandedFloor,
   canEdit,
   onAddFloor,
   onAddWing,
   onAddSpace,
-  projectId,
-  userUid,
 }) {
   const { name, code, status, description, floors = [] } = building;
   const statusColor = getStatusColor(status);
@@ -800,6 +819,7 @@ function BuildingItem({
                   onToggle={() => onToggleFloor(floor.floorId)}
                   onAddWing={(floorId) => onAddWing(floorId)}
                   onAddSpace={(floorId, wingId) => onAddSpace(floorId, wingId)}
+                  onToggleWing={onToggleWing}
                   canEdit={canEdit}
                 />
               ))}
@@ -811,7 +831,7 @@ function BuildingItem({
   );
 }
 
-function FloorItem({ floor, buildingId, isExpanded, onToggle, onAddWing, onAddSpace, canEdit }) {
+function FloorItem({ floor, buildingId, isExpanded, onToggle, onAddWing, onAddSpace, canEdit, onToggleWing }) {
   const { name, levelNumber, code, status, wings = [] } = floor;
   const statusColor = getStatusColor(status);
   const statusLabel = STATUS_DISPLAY_NAMES[status] || status;
@@ -875,6 +895,7 @@ function FloorItem({ floor, buildingId, isExpanded, onToggle, onAddWing, onAddSp
                   floorId={floor.floorId}
                   buildingId={buildingId}
                   onAddSpace={onAddSpace}
+                  onToggleWing={(wingId) => onToggleWing(floor.floorId, wingId)}
                   canEdit={canEdit}
                 />
               ))}
@@ -886,17 +907,32 @@ function FloorItem({ floor, buildingId, isExpanded, onToggle, onAddWing, onAddSp
   );
 }
 
-function WingItem({ wing, floorId, buildingId, onAddSpace, canEdit }) {
+function WingItem({ wing, floorId, buildingId, onAddSpace, canEdit, onToggleWing }) {
   const [showSpaces, setShowSpaces] = useState(false);
-  const { name, code, status, spaces = [], description } = wing;
+  const { name, code, status, spaces = [], description, wingId } = wing;
   const statusColor = getStatusColor(status);
   const statusLabel = STATUS_DISPLAY_NAMES[status] || status;
+  const navigate = useNavigate();
+
+  console.log('🪄 WingItem render:', { wingId, name, spacesCount: spaces?.length || 0 });
+
+  const toggleSpaces = () => {
+    console.log('👆 Wing clicked:', { wingId, name });
+    const newShowState = !showSpaces;
+    setShowSpaces(newShowState);
+    
+    // Load spaces from parent when expanding
+    if (newShowState && onToggleWing) {
+      console.log('📡 Calling onToggleWing for wing:', wingId);
+      onToggleWing(wingId);
+    }
+  };
 
   return (
     <div className="bg-white dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-700 overflow-hidden">
       <div 
         className="flex items-center justify-between p-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-        onClick={() => setShowSpaces(!showSpaces)}
+        onClick={toggleSpaces}
       >
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium text-gray-900 dark:text-white">{name}</span>
@@ -904,6 +940,11 @@ function WingItem({ wing, floorId, buildingId, onAddSpace, canEdit }) {
           <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor}`}>
             {statusLabel}
           </span>
+          {spaces && spaces.length > 0 && (
+            <span className="text-xs text-gray-400 dark:text-gray-500">
+              ({spaces.length} spaces)
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {canEdit && (
@@ -911,7 +952,10 @@ function WingItem({ wing, floorId, buildingId, onAddSpace, canEdit }) {
               variant="ghost"
               size="sm"
               icon={<Plus size={12} />}
-              onClick={(e) => { e.stopPropagation(); onAddSpace(floorId, wing.wingId); }}
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                onAddSpace(floorId, wingId); 
+              }}
               className="text-xs"
             >
               Add Space
@@ -929,7 +973,7 @@ function WingItem({ wing, floorId, buildingId, onAddSpace, canEdit }) {
           {description && (
             <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{description}</p>
           )}
-          {spaces.length === 0 ? (
+          {!spaces || spaces.length === 0 ? (
             <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-2">
               No spaces yet
             </p>
@@ -947,12 +991,16 @@ function WingItem({ wing, floorId, buildingId, onAddSpace, canEdit }) {
 }
 
 function SpaceItem({ space }) {
-  const { name, code, status, type } = space;
+  const { name, code, status, type, spaceId } = space;
   const statusColor = getStatusColor(status);
   const statusLabel = STATUS_DISPLAY_NAMES[status] || status;
+  const navigate = useNavigate();
 
   return (
-    <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors cursor-pointer">
+    <div 
+      className="p-2 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors cursor-pointer"
+      onClick={() => navigate(`/spaces/${spaceId}`)}
+    >
       <div className="flex items-center justify-between">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{name}</p>
