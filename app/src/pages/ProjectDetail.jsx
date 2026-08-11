@@ -22,6 +22,7 @@ import Button from '../components/common/Button';
 import Badge from '../components/common/Badge';
 import Input from '../components/common/Input';
 import { STATUS_DISPLAY_NAMES, getStatusColor } from '../constants/status';
+import ProjectMembers from '../components/projects/ProjectMembers';
 
 function ProjectDetail() {
   const { projectId } = useParams();
@@ -252,6 +253,16 @@ function ProjectDetail() {
           </div>
         )}
       </div>
+
+      {/* Project Members - Only for HR and Directors */}
+      {['hr', 'director'].includes(userRole) && (
+        <div className="mt-6">
+          <ProjectMembers 
+            projectId={projectId} 
+            projectName={project?.name}
+          />
+        </div>
+      )}
 
       {/* Delete Project Modal */}
       {showDeleteModal && (

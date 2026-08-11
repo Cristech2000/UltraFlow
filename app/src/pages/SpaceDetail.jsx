@@ -39,6 +39,7 @@ import Button from '../components/common/Button';
 import Badge from '../components/common/Badge';
 import ProgressBar from '../components/common/ProgressBar';
 import Input from '../components/common/Input';
+import ProjectGuard from '../components/common/ProjectGuard';
 
 function SpaceDetail() {
   const { spaceId } = useParams();
@@ -322,332 +323,334 @@ function SpaceDetail() {
   const breadcrumbItems = buildBreadcrumb();
 
   return (
-    <div className="space-y-6">
-      {/* Breadcrumb */}
-      <nav className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 flex-wrap">
-        {breadcrumbItems.map((item, index) => (
-          <React.Fragment key={item.path + index}>
-            {index > 0 && (
-              <ChevronRight size={14} className="text-gray-300 dark:text-gray-600 flex-shrink-0" />
-            )}
-            {item.isLink ? (
-              <Link
-                to={item.path}
-                className="hover:text-primary-500 transition-colors truncate max-w-[120px]"
-              >
-                {item.name}
-              </Link>
-            ) : (
-              <span className="font-medium text-gray-700 dark:text-gray-300 truncate max-w-[120px]">
-                {item.name}
-              </span>
-            )}
-          </React.Fragment>
-        ))}
-      </nav>
+    <ProjectGuard projectId={space?.projectId}>
+      <div className="space-y-6">
+        {/* Breadcrumb */}
+        <nav className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 flex-wrap">
+          {breadcrumbItems.map((item, index) => (
+            <React.Fragment key={item.path + index}>
+              {index > 0 && (
+                <ChevronRight size={14} className="text-gray-300 dark:text-gray-600 flex-shrink-0" />
+              )}
+              {item.isLink ? (
+                <Link
+                  to={item.path}
+                  className="hover:text-primary-500 transition-colors truncate max-w-[120px]"
+                >
+                  {item.name}
+                </Link>
+              ) : (
+                <span className="font-medium text-gray-700 dark:text-gray-300 truncate max-w-[120px]">
+                  {item.name}
+                </span>
+              )}
+            </React.Fragment>
+          ))}
+        </nav>
 
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-              {space.name}
-            </h1>
-            <Badge variant="primary" size="sm">{space.type || 'Space'}</Badge>
-            <Badge variant="secondary" size="sm">
-              {space.status || 'Active'}
-            </Badge>
-          </div>
-          
-          <div className="flex items-center gap-2 mt-2 text-sm text-gray-500 dark:text-gray-400 flex-wrap">
-            {parentNames.buildingName && (
-              <>
-                <Building2 size={14} className="text-gray-400" />
-                <span className="font-medium text-gray-700 dark:text-gray-300">{parentNames.buildingName}</span>
-              </>
-            )}
-            
-            {parentNames.floorName && (
-              <>
-                <span className="text-gray-400">•</span>
-                <Home size={14} className="text-gray-400" />
-                <span className="font-medium text-gray-700 dark:text-gray-300">{parentNames.floorName}</span>
-              </>
-            )}
-            
-            {parentNames.wingName && (
-              <>
-                <span className="text-gray-400">•</span>
-                <Layers size={14} className="text-gray-400" />
-                <span className="font-medium text-gray-700 dark:text-gray-300">{parentNames.wingName}</span>
-              </>
-            )}
-          </div>
-
-          {space.code && (
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Code: {space.code}</p>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="ghost"
-            onClick={() => navigate(`/projects/${space.projectId}`)}
-            icon={<ArrowLeft size={16} />}
-          >
-            Back
-          </Button>
-          {canDelete && (
-            <Button
-              variant="danger"
-              size="sm"
-              icon={<Trash2 size={16} />}
-              onClick={() => setShowDeleteModal(true)}
-            >
-              Delete Space
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* Description */}
-      {space.description && (
-        <Card>
-          <p className="text-gray-600 dark:text-gray-300">{space.description}</p>
-        </Card>
-      )}
-
-      {/* Space Progress */}
-      <Card>
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <TrendingUp size={18} className="text-gray-400" />
-            <h3 className="font-semibold text-gray-900 dark:text-white">Overall Progress</h3>
-          </div>
-          <span className="text-2xl font-bold text-primary-600 dark:text-primary-400">
-            {spaceProgress}%
-          </span>
-        </div>
-        <ProgressBar value={spaceProgress} />
-        <div className="grid grid-cols-4 gap-4 mt-4 pt-4 border-t border-gray-100 dark:border-gray-800">
-          <div className="text-center">
-            <p className="text-2xl font-bold text-gray-900 dark:text-white">{activities.length}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Total</p>
-          </div>
-          <div className="text-center">
-            <p className="text-2xl font-bold text-green-600 dark:text-green-400">{completedCount}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Completed</p>
-          </div>
-          <div className="text-center">
-            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{inProgressCount}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">In Progress</p>
-          </div>
-          <div className="text-center">
-            <p className="text-2xl font-bold text-red-600 dark:text-red-400">{blockedCount}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Blocked</p>
-          </div>
-        </div>
-      </Card>
-
-      {/* Activities Section */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div>
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white">Construction Activities</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Track progress for each activity in this space
-            </p>
-          </div>
-          <div className="flex gap-2">
-            {canCreateActivities && (
-              <Button
-                variant="ghost"
-                size="sm"
-                icon={<FileText size={16} />}
-                onClick={() => setShowTemplateModal(true)}
-              >
-                Apply Template
-              </Button>
-            )}
-            {canCreateActivities && (
-              <Button
-                variant="primary"
-                size="sm"
-                icon={<Plus size={16} />}
-                onClick={() => setShowAddActivity(true)}
-              >
-                Add Activity
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {activities.length === 0 ? (
-          <Card>
-            <div className="py-8 text-center">
-              <Zap size={32} className="text-gray-400 mx-auto mb-2" />
-              <p className="text-gray-500 dark:text-gray-400">No activities have been assigned</p>
-              {canCreateActivities && (
-                <div className="flex justify-center gap-3 mt-4">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setShowTemplateModal(true)}
-                  >
-                    Apply Template
-                  </Button>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={() => setShowAddActivity(true)}
-                  >
-                    Add First Activity
-                  </Button>
-                </div>
+            <div className="flex items-center gap-3">
+              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+                {space.name}
+              </h1>
+              <Badge variant="primary" size="sm">{space.type || 'Space'}</Badge>
+              <Badge variant="secondary" size="sm">
+                {space.status || 'Active'}
+              </Badge>
+            </div>
+            
+            <div className="flex items-center gap-2 mt-2 text-sm text-gray-500 dark:text-gray-400 flex-wrap">
+              {parentNames.buildingName && (
+                <>
+                  <Building2 size={14} className="text-gray-400" />
+                  <span className="font-medium text-gray-700 dark:text-gray-300">{parentNames.buildingName}</span>
+                </>
+              )}
+              
+              {parentNames.floorName && (
+                <>
+                  <span className="text-gray-400">•</span>
+                  <Home size={14} className="text-gray-400" />
+                  <span className="font-medium text-gray-700 dark:text-gray-300">{parentNames.floorName}</span>
+                </>
+              )}
+              
+              {parentNames.wingName && (
+                <>
+                  <span className="text-gray-400">•</span>
+                  <Layers size={14} className="text-gray-400" />
+                  <span className="font-medium text-gray-700 dark:text-gray-300">{parentNames.wingName}</span>
+                </>
               )}
             </div>
+
+            {space.code && (
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Code: {space.code}</p>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => navigate(`/projects/${space.projectId}`)}
+              icon={<ArrowLeft size={16} />}
+            >
+              Back
+            </Button>
+            {canDelete && (
+              <Button
+                variant="danger"
+                size="sm"
+                icon={<Trash2 size={16} />}
+                onClick={() => setShowDeleteModal(true)}
+              >
+                Delete Space
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Description */}
+        {space.description && (
+          <Card>
+            <p className="text-gray-600 dark:text-gray-300">{space.description}</p>
           </Card>
-        ) : (
-          <div className="space-y-3">
-            {activities.map((activity, index) => (
-              <ActivityItem
-                key={activity.activityId}
-                activity={activity}
-                isEditing={editingActivity === activity.activityId}
-                onEdit={() => setEditingActivity(activity.activityId)}
-                onCancelEdit={() => setEditingActivity(null)}
-                onUpdateProgress={(progress) => handleUpdateProgress(activity.activityId, progress)}
-                onUpdateStatus={(status) => handleUpdateStatus(activity.activityId, status)}
-                onDelete={() => handleDeleteActivity(activity.activityId)}
-                canEdit={canEdit}
-                canDelete={canDelete}
+        )}
+
+        {/* Space Progress */}
+        <Card>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <TrendingUp size={18} className="text-gray-400" />
+              <h3 className="font-semibold text-gray-900 dark:text-white">Overall Progress</h3>
+            </div>
+            <span className="text-2xl font-bold text-primary-600 dark:text-primary-400">
+              {spaceProgress}%
+            </span>
+          </div>
+          <ProgressBar value={spaceProgress} />
+          <div className="grid grid-cols-4 gap-4 mt-4 pt-4 border-t border-gray-100 dark:border-gray-800">
+            <div className="text-center">
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{activities.length}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Total</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-green-600 dark:text-green-400">{completedCount}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Completed</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{inProgressCount}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">In Progress</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-red-600 dark:text-red-400">{blockedCount}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Blocked</p>
+            </div>
+          </div>
+        </Card>
+
+        {/* Activities Section */}
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">Construction Activities</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Track progress for each activity in this space
+              </p>
+            </div>
+            <div className="flex gap-2">
+              {canCreateActivities && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={<FileText size={16} />}
+                  onClick={() => setShowTemplateModal(true)}
+                >
+                  Apply Template
+                </Button>
+              )}
+              {canCreateActivities && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  icon={<Plus size={16} />}
+                  onClick={() => setShowAddActivity(true)}
+                >
+                  Add Activity
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {activities.length === 0 ? (
+            <Card>
+              <div className="py-8 text-center">
+                <Zap size={32} className="text-gray-400 mx-auto mb-2" />
+                <p className="text-gray-500 dark:text-gray-400">No activities have been assigned</p>
+                {canCreateActivities && (
+                  <div className="flex justify-center gap-3 mt-4">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowTemplateModal(true)}
+                    >
+                      Apply Template
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => setShowAddActivity(true)}
+                    >
+                      Add First Activity
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {activities.map((activity, index) => (
+                <ActivityItem
+                  key={activity.activityId}
+                  activity={activity}
+                  isEditing={editingActivity === activity.activityId}
+                  onEdit={() => setEditingActivity(activity.activityId)}
+                  onCancelEdit={() => setEditingActivity(null)}
+                  onUpdateProgress={(progress) => handleUpdateProgress(activity.activityId, progress)}
+                  onUpdateStatus={(status) => handleUpdateStatus(activity.activityId, status)}
+                  onDelete={() => handleDeleteActivity(activity.activityId)}
+                  canEdit={canEdit}
+                  canDelete={canDelete}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Add Activity Modal */}
+        <AnimatePresence>
+          {showAddActivity && (
+            <Modal
+              title="Add Activity"
+              onClose={() => { setShowAddActivity(false); setFormError(''); }}
+              onSubmit={handleCreateActivity}
+              submitting={submitting}
+              error={formError}
+            >
+              <Input
+                label="Activity Name"
+                name="name"
+                placeholder="e.g., Routing"
+                value={newActivity.name}
+                onChange={(e) => setNewActivity({ ...newActivity, name: e.target.value })}
+                required
               />
-            ))}
+              <Input
+                label="Activity Code"
+                name="code"
+                placeholder="e.g., ELEC-001"
+                value={newActivity.code}
+                onChange={(e) => setNewActivity({ ...newActivity, code: e.target.value })}
+              />
+              <Input
+                label="Description"
+                name="description"
+                placeholder="Brief description"
+                value={newActivity.description}
+                onChange={(e) => setNewActivity({ ...newActivity, description: e.target.value })}
+              />
+              <Input
+                label="Order"
+                name="order"
+                type="number"
+                placeholder="1"
+                value={newActivity.order}
+                onChange={(e) => setNewActivity({ ...newActivity, order: parseInt(e.target.value) || 0 })}
+              />
+            </Modal>
+          )}
+        </AnimatePresence>
+
+        {/* Template Modal */}
+        <AnimatePresence>
+          {showTemplateModal && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+              onClick={() => setShowTemplateModal(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.9, y: 20 }}
+                className="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">Apply Activity Template</h2>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    Select a template to create multiple activities at once
+                  </p>
+                </div>
+                <div className="p-6 space-y-4">
+                  {formError && (
+                    <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-600 dark:text-red-400">
+                      {formError}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {getTemplateNames().map((template) => (
+                      <motion.div
+                        key={template.id}
+                        whileHover={{ scale: 1.02 }}
+                        className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:border-primary-500 dark:hover:border-primary-500 transition-colors"
+                        onClick={() => handleApplyTemplate(template.id)}
+                      >
+                        <h3 className="font-medium text-gray-900 dark:text-white">{template.name}</h3>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">{template.discipline}</p>
+                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                          {template.activityCount} activities
+                        </p>
+                      </motion.div>
+                    ))}
+                  </div>
+                  <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <Button variant="ghost" onClick={() => setShowTemplateModal(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Delete Space Modal */}
+        {showDeleteModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-md w-full p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <AlertTriangle size={24} className="text-red-500" />
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white">Delete Space</h2>
+              </div>
+              <p className="text-gray-600 dark:text-gray-300">
+                Are you sure you want to delete <span className="font-semibold">{space.name}</span>?
+                This will permanently remove all activities.
+              </p>
+              <div className="flex justify-end gap-3 mt-6">
+                <Button variant="ghost" onClick={() => setShowDeleteModal(false)}>Cancel</Button>
+                <Button variant="danger" onClick={handleDeleteSpace} loading={deleting}>
+                  Delete
+                </Button>
+              </div>
+            </div>
           </div>
         )}
       </div>
-
-      {/* Add Activity Modal */}
-      <AnimatePresence>
-        {showAddActivity && (
-          <Modal
-            title="Add Activity"
-            onClose={() => { setShowAddActivity(false); setFormError(''); }}
-            onSubmit={handleCreateActivity}
-            submitting={submitting}
-            error={formError}
-          >
-            <Input
-              label="Activity Name"
-              name="name"
-              placeholder="e.g., Routing"
-              value={newActivity.name}
-              onChange={(e) => setNewActivity({ ...newActivity, name: e.target.value })}
-              required
-            />
-            <Input
-              label="Activity Code"
-              name="code"
-              placeholder="e.g., ELEC-001"
-              value={newActivity.code}
-              onChange={(e) => setNewActivity({ ...newActivity, code: e.target.value })}
-            />
-            <Input
-              label="Description"
-              name="description"
-              placeholder="Brief description"
-              value={newActivity.description}
-              onChange={(e) => setNewActivity({ ...newActivity, description: e.target.value })}
-            />
-            <Input
-              label="Order"
-              name="order"
-              type="number"
-              placeholder="1"
-              value={newActivity.order}
-              onChange={(e) => setNewActivity({ ...newActivity, order: parseInt(e.target.value) || 0 })}
-            />
-          </Modal>
-        )}
-      </AnimatePresence>
-
-      {/* Template Modal */}
-      <AnimatePresence>
-        {showTemplateModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-            onClick={() => setShowTemplateModal(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.9, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.9, y: 20 }}
-              className="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-                <h2 className="text-xl font-bold text-gray-900 dark:text-white">Apply Activity Template</h2>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                  Select a template to create multiple activities at once
-                </p>
-              </div>
-              <div className="p-6 space-y-4">
-                {formError && (
-                  <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-600 dark:text-red-400">
-                    {formError}
-                  </div>
-                )}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {getTemplateNames().map((template) => (
-                    <motion.div
-                      key={template.id}
-                      whileHover={{ scale: 1.02 }}
-                      className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:border-primary-500 dark:hover:border-primary-500 transition-colors"
-                      onClick={() => handleApplyTemplate(template.id)}
-                    >
-                      <h3 className="font-medium text-gray-900 dark:text-white">{template.name}</h3>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">{template.discipline}</p>
-                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                        {template.activityCount} activities
-                      </p>
-                    </motion.div>
-                  ))}
-                </div>
-                <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
-                  <Button variant="ghost" onClick={() => setShowTemplateModal(false)}>
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Delete Space Modal */}
-      {showDeleteModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-md w-full p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <AlertTriangle size={24} className="text-red-500" />
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white">Delete Space</h2>
-            </div>
-            <p className="text-gray-600 dark:text-gray-300">
-              Are you sure you want to delete <span className="font-semibold">{space.name}</span>?
-              This will permanently remove all activities.
-            </p>
-            <div className="flex justify-end gap-3 mt-6">
-              <Button variant="ghost" onClick={() => setShowDeleteModal(false)}>Cancel</Button>
-              <Button variant="danger" onClick={handleDeleteSpace} loading={deleting}>
-                Delete
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    </ProjectGuard>
   );
 }
 

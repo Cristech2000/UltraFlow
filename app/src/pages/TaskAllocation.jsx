@@ -16,7 +16,7 @@ import {
   Target,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-import { getProjectsByOrganization } from '../services/projectService';
+import { getProjectsByOrganization, getAllProjects } from '../services/projectService';
 import { getActivitiesByScope, ACTIVITY_SCOPES, getActivitiesByProject, getActivity } from '../services/activityService';
 import { 
   getBuildingsByProject, 
@@ -31,7 +31,7 @@ import {
   getSpace,
 } from '../services/spaceService';
 import { createTask, getTasksByProject, getTaskLocation } from '../services/taskService';
-import { listAllUsers } from '../services/userService';
+import { getEligibleTaskMembers } from '../services/membershipService';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import Badge from '../components/common/Badge';
@@ -40,7 +40,7 @@ import ProgressBar from '../components/common/ProgressBar';
 import { getRoleDisplayName } from '../constants/roles';
 
 function TaskAllocation() {
-  const { user, userProfile, userRole } = useAuth();
+  const { user, userProfile, userRole, projectIds } = useAuth();
   const navigate = useNavigate();
   const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
@@ -90,35 +90,53 @@ function TaskAllocation() {
 
   const canManageTasks = ['director', 'supervisor', 'foreman'].includes(userRole);
 
-  // Load projects
+  // Load projects - FILTERED BY PROJECT MEMBERSHIP
   useEffect(() => {
     const loadProjects = async () => {
       try {
         const orgId = userProfile?.organizationId || 'ultrapower';
-        const projectsData = await getProjectsByOrganization(orgId);
-        setProjects(projectsData);
+        const allProjects = await getProjectsByOrganization(orgId);
+        
+        // Check if user is global role (HR or Director)
+        const isGlobalRole = ['hr', 'director'].includes(userRole);
+        
+        let filteredProjects;
+        if (isGlobalRole) {
+          // HR and Director see all projects
+          filteredProjects = allProjects;
+        } else {
+          // Other roles only see projects they are assigned to
+          const userProjectIds = projectIds || [];
+          filteredProjects = allProjects.filter(p => userProjectIds.includes(p.projectId));
+        }
+        
+        setProjects(filteredProjects);
+        console.log('📋 Loaded projects:', filteredProjects);
       } catch (err) {
         console.error('Error loading projects:', err);
       }
     };
     loadProjects();
-  }, [userProfile]);
+  }, [userProfile, userRole, projectIds]);
 
-  // Load users for team assignment
+  // Load users for team assignment - FILTERED BY PROJECT MEMBERSHIP
   useEffect(() => {
-    const loadUsers = async () => {
+    const loadEligibleUsers = async () => {
+      if (!selectedProject) {
+        setUsers([]);
+        return;
+      }
       try {
-        const allUsers = await listAllUsers();
-        const filteredUsers = allUsers.filter(u => 
-          ['electrician', 'foreman'].includes(u.role)
-        );
-        setUsers(filteredUsers);
+        const eligibleUsers = await getEligibleTaskMembers(selectedProject.projectId);
+        setUsers(eligibleUsers);
+        console.log('📋 Eligible users for project:', eligibleUsers);
       } catch (err) {
-        console.error('Error loading users:', err);
+        console.error('Error loading eligible users:', err);
+        setUsers([]);
       }
     };
-    loadUsers();
-  }, []);
+    loadEligibleUsers();
+  }, [selectedProject]);
 
   // Load tasks for selected project
   const loadTasks = async (projectId) => {
@@ -197,12 +215,11 @@ function TaskAllocation() {
     }
   };
 
-  // Load activities - FIXED: accepts explicit IDs
+  // Load activities - accepts explicit IDs
   const loadActivitiesForAssignment = async (explicitId = null, explicitLevel = null) => {
     const level = explicitLevel || assignmentLevel;
     if (!selectedProject || !level) return;
     
-    // Use explicit ID if provided, otherwise use state
     const currentBuildingId = explicitId || selectedLocation.buildingId;
     const currentFloorId = explicitId || selectedLocation.floorId;
     const currentWingId = explicitId || selectedLocation.wingId;
@@ -216,7 +233,6 @@ function TaskAllocation() {
     console.log('📌 Space ID:', currentSpaceId);
     console.log('📌 =================================');
     
-    // Check if we have the required location
     let hasRequiredLocation = false;
     let scope = ACTIVITY_SCOPES.PROJECT;
     let scopeId = null;
@@ -267,7 +283,6 @@ function TaskAllocation() {
       console.log(`📦 Raw activities for ${scopeName} (${scopeId}):`, activitiesData);
       console.log(`📦 Raw activities count: ${activitiesData.length}`);
       
-      // Filter out completed and deduplicate
       const seen = new Set();
       const uniqueActivities = activitiesData.filter(a => {
         if (a.status === 'completed') return false;
@@ -355,7 +370,7 @@ function TaskAllocation() {
     }));
   };
 
-  // Handle building change - PASS BUILDING ID DIRECTLY
+  // Handle building change
   const handleBuildingChange = async (buildingId) => {
     console.log(`📌 Building changed to: ${buildingId}`);
     
@@ -389,13 +404,12 @@ function TaskAllocation() {
     }
     
     if (buildingId && assignmentLevel === 'building') {
-      // Pass the buildingId directly
       await new Promise(resolve => setTimeout(resolve, 150));
       await loadActivitiesForAssignment(buildingId);
     }
   };
 
-  // Handle floor change - PASS FLOOR ID DIRECTLY
+  // Handle floor change
   const handleFloorChange = async (floorId) => {
     console.log(`📌 Floor changed to: ${floorId}`);
     
@@ -427,13 +441,12 @@ function TaskAllocation() {
     }
     
     if (floorId && assignmentLevel === 'level') {
-      // Pass the floorId directly
       await new Promise(resolve => setTimeout(resolve, 150));
       await loadActivitiesForAssignment(floorId);
     }
   };
 
-  // Handle wing change - PASS WING ID DIRECTLY
+  // Handle wing change
   const handleWingChange = async (wingId) => {
     console.log(`📌 Wing changed to: ${wingId}`);
     
@@ -462,13 +475,12 @@ function TaskAllocation() {
     }
     
     if (wingId && assignmentLevel === 'wing') {
-      // Pass the wingId directly
       await new Promise(resolve => setTimeout(resolve, 150));
       await loadActivitiesForAssignment(wingId);
     }
   };
 
-  // Handle space change - PASS SPACE ID DIRECTLY
+  // Handle space change
   const handleSpaceChange = async (spaceId) => {
     console.log(`📌 Space changed to: ${spaceId}`);
     
@@ -490,7 +502,6 @@ function TaskAllocation() {
     }));
     
     if (spaceId && assignmentLevel === 'space') {
-      // Pass the spaceId directly
       await new Promise(resolve => setTimeout(resolve, 150));
       await loadActivitiesForAssignment(spaceId);
     }

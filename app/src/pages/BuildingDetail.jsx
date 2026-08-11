@@ -31,6 +31,7 @@ import Badge from '../components/common/Badge';
 import ProgressBar from '../components/common/ProgressBar';
 import Input from '../components/common/Input';
 import { STATUS_DISPLAY_NAMES, getStatusColor } from '../constants/status';
+import ProjectGuard from '../components/common/ProjectGuard';
 
 function BuildingDetail() {
   const { projectId, buildingId } = useParams();
@@ -74,22 +75,14 @@ function BuildingDetail() {
       const projectData = await getProject(projectId);
       if (projectData) setProject(projectData);
 
-      // Get all floors
       const floorsData = await getFloorsByBuilding(buildingId);
       
-      // For each floor, calculate its progress
       const floorsWithProgress = await Promise.all(
         floorsData.map(async (floor) => {
-          // Get wings for this floor
           const wings = await getWingsByFloor(floor.floorId);
-          
-          // Calculate progress for each wing
           const wingsWithProgress = await Promise.all(
             wings.map(async (wing) => {
-              // Get spaces in wing
               const spaces = await getSpacesByWing(wing.wingId);
-              
-              // Calculate each space's progress from its activities
               const spacesWithProgress = await Promise.all(
                 spaces.map(async (space) => {
                   const spaceActs = await getActivitiesByScope(projectId, ACTIVITY_SCOPES.SPACE, space.spaceId);
@@ -97,13 +90,8 @@ function BuildingDetail() {
                   return { ...space, progress: spaceProgress };
                 })
               );
-              
-              // Get wing activities
               const wingActs = await getActivitiesByScope(projectId, ACTIVITY_SCOPES.WING, wing.wingId);
-              
-              // Calculate wing progress
               const wingProgress = calculateWingProgress(spacesWithProgress, wingActs);
-              
               return { 
                 ...wing, 
                 progress: wingProgress,
@@ -112,13 +100,8 @@ function BuildingDetail() {
               };
             })
           );
-          
-          // Get floor activities
           const floorActs = await getActivitiesByScope(projectId, ACTIVITY_SCOPES.LEVEL, floor.floorId);
-          
-          // Calculate floor progress
           const floorProgress = calculateLevelProgress(wingsWithProgress, floorActs);
-          
           return { 
             ...floor, 
             progress: floorProgress,
@@ -130,7 +113,6 @@ function BuildingDetail() {
       
       setFloors(floorsWithProgress);
 
-      // Get building-wide activities
       const activitiesData = await getActivitiesByScope(
         projectId,
         ACTIVITY_SCOPES.BUILDING,
@@ -322,239 +304,241 @@ function BuildingDetail() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-        <Link to="/projects" className="hover:text-primary-500 transition-colors">Projects</Link>
-        <ChevronRight size={14} />
-        <Link to={`/projects/${projectId}`} className="hover:text-primary-500 transition-colors">
-          {project?.name || 'Project'}
-        </Link>
-        <ChevronRight size={14} />
-        <span className="text-gray-900 dark:text-white font-medium">{building.name}</span>
-      </div>
+    <ProjectGuard projectId={projectId}>
+      <div className="space-y-6">
+        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+          <Link to="/projects" className="hover:text-primary-500 transition-colors">Projects</Link>
+          <ChevronRight size={14} />
+          <Link to={`/projects/${projectId}`} className="hover:text-primary-500 transition-colors">
+            {project?.name || 'Project'}
+          </Link>
+          <ChevronRight size={14} />
+          <span className="text-gray-900 dark:text-white font-medium">{building.name}</span>
+        </div>
 
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <Building2 size={28} className="text-primary-500" />
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-                {building.name}
-              </h1>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                {project?.name || 'Project'} • {building.code || 'No code'}
-              </p>
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-3">
+              <Building2 size={28} className="text-primary-500" />
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+                  {building.name}
+                </h1>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {project?.name || 'Project'} • {building.code || 'No code'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 mt-2">
+              {getStatusBadge(building.status)}
+              <span className="text-sm text-gray-500 dark:text-gray-400">
+                {floors.length} {floors.length === 1 ? 'Level' : 'Levels'}
+              </span>
+              <span className="text-sm text-gray-500 dark:text-gray-400">
+                {activities.length} Building Activities
+              </span>
             </div>
           </div>
-          <div className="flex items-center gap-3 mt-2">
-            {getStatusBadge(building.status)}
-            <span className="text-sm text-gray-500 dark:text-gray-400">
-              {floors.length} {floors.length === 1 ? 'Level' : 'Levels'}
-            </span>
-            <span className="text-sm text-gray-500 dark:text-gray-400">
-              {activities.length} Building Activities
-            </span>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="ghost" onClick={() => navigate(`/projects/${projectId}`)} icon={<ArrowLeft size={16} />}>Back</Button>
+            {canEdit && (
+              <Button variant="accent" size="sm" icon={<FileText size={16} />} onClick={() => setShowActivityForm(true)}>
+                Add Activity
+              </Button>
+            )}
+            {canDelete && (
+              <Button variant="danger" size="sm" icon={<Trash2 size={16} />} onClick={() => setShowDeleteModal(true)}>
+                Delete
+              </Button>
+            )}
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="ghost" onClick={() => navigate(`/projects/${projectId}`)} icon={<ArrowLeft size={16} />}>Back</Button>
-          {canEdit && (
-            <Button variant="accent" size="sm" icon={<FileText size={16} />} onClick={() => setShowActivityForm(true)}>
-              Add Activity
-            </Button>
-          )}
-          {canDelete && (
-            <Button variant="danger" size="sm" icon={<Trash2 size={16} />} onClick={() => setShowDeleteModal(true)}>
-              Delete
-            </Button>
-          )}
-        </div>
-      </div>
 
-      {building.description && (
-        <Card>
-          <p className="text-gray-600 dark:text-gray-300">{building.description}</p>
-        </Card>
-      )}
-
-      <Card>
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <TrendingUp size={18} className="text-gray-400" />
-            <h3 className="font-semibold text-gray-900 dark:text-white">Building Progress</h3>
-            <span className="text-xs text-gray-400 dark:text-gray-500">
-              (Cumulative from {floors.length} levels + {activities.length} building activities)
-            </span>
-          </div>
-          <span className="text-2xl font-bold text-primary-600 dark:text-primary-400">
-            {buildingProgress}%
-          </span>
-        </div>
-        <ProgressBar value={buildingProgress} />
-      </Card>
-
-      {activities.length > 0 && (
-        <Card title="Building-Wide Activities" subtitle="Activities that apply to the entire building">
-          <div className="space-y-2">
-            {activities.map((activity) => (
-              <ActivityItem
-                key={activity.activityId}
-                activity={activity}
-                isEditing={editingActivity === activity.activityId}
-                onEdit={() => setEditingActivity(activity.activityId)}
-                onCancelEdit={() => setEditingActivity(null)}
-                onUpdateProgress={(progress) => handleUpdateProgress(activity.activityId, progress)}
-                onUpdateStatus={(status) => handleUpdateStatus(activity.activityId, status)}
-                onDelete={() => handleDeleteActivity(activity.activityId)}
-                canEdit={canEdit}
-                canDelete={canDelete}
-                getActivityStatusDisplay={getActivityStatusDisplay}
-                getActivityStatusColor={getActivityStatusColor}
-                getStatusIcon={getStatusIcon}
-              />
-            ))}
-          </div>
-        </Card>
-      )}
-
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white">Levels</h2>
-          {canEdit && (
-            <Button variant="ghost" size="sm" icon={<Plus size={16} />} onClick={() => setShowFloorForm(true)}>
-              Add Level
-            </Button>
-          )}
-        </div>
-
-        {floors.length === 0 ? (
+        {building.description && (
           <Card>
-            <div className="py-8 text-center">
-              <Home size={32} className="text-gray-400 mx-auto mb-2" />
-              <p className="text-gray-500 dark:text-gray-400">No levels yet</p>
+            <p className="text-gray-600 dark:text-gray-300">{building.description}</p>
+          </Card>
+        )}
+
+        <Card>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <TrendingUp size={18} className="text-gray-400" />
+              <h3 className="font-semibold text-gray-900 dark:text-white">Building Progress</h3>
+              <span className="text-xs text-gray-400 dark:text-gray-500">
+                (Cumulative from {floors.length} levels + {activities.length} building activities)
+              </span>
+            </div>
+            <span className="text-2xl font-bold text-primary-600 dark:text-primary-400">
+              {buildingProgress}%
+            </span>
+          </div>
+          <ProgressBar value={buildingProgress} />
+        </Card>
+
+        {activities.length > 0 && (
+          <Card title="Building-Wide Activities" subtitle="Activities that apply to the entire building">
+            <div className="space-y-2">
+              {activities.map((activity) => (
+                <ActivityItem
+                  key={activity.activityId}
+                  activity={activity}
+                  isEditing={editingActivity === activity.activityId}
+                  onEdit={() => setEditingActivity(activity.activityId)}
+                  onCancelEdit={() => setEditingActivity(null)}
+                  onUpdateProgress={(progress) => handleUpdateProgress(activity.activityId, progress)}
+                  onUpdateStatus={(status) => handleUpdateStatus(activity.activityId, status)}
+                  onDelete={() => handleDeleteActivity(activity.activityId)}
+                  canEdit={canEdit}
+                  canDelete={canDelete}
+                  getActivityStatusDisplay={getActivityStatusDisplay}
+                  getActivityStatusColor={getActivityStatusColor}
+                  getStatusIcon={getStatusIcon}
+                />
+              ))}
             </div>
           </Card>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {floors.map((floor) => (
-              <motion.div
-                key={floor.floorId}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-              >
-                <Card
-                  className="cursor-pointer hover:shadow-lg transition-shadow"
-                  onClick={() => navigate(`/projects/${projectId}/buildings/${buildingId}/floors/${floor.floorId}`)}
+        )}
+
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white">Levels</h2>
+            {canEdit && (
+              <Button variant="ghost" size="sm" icon={<Plus size={16} />} onClick={() => setShowFloorForm(true)}>
+                Add Level
+              </Button>
+            )}
+          </div>
+
+          {floors.length === 0 ? (
+            <Card>
+              <div className="py-8 text-center">
+                <Home size={32} className="text-gray-400 mx-auto mb-2" />
+                <p className="text-gray-500 dark:text-gray-400">No levels yet</p>
+              </div>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {floors.map((floor) => (
+                <motion.div
+                  key={floor.floorId}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
                 >
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="font-medium text-gray-900 dark:text-white">{floor.name}</h3>
-                        {floor.levelNumber > 0 && (
-                          <p className="text-sm text-gray-500 dark:text-gray-400">Level {floor.levelNumber}</p>
-                        )}
-                        {floor.code && (
-                          <p className="text-xs text-gray-400 dark:text-gray-500">{floor.code}</p>
-                        )}
+                  <Card
+                    className="cursor-pointer hover:shadow-lg transition-shadow"
+                    onClick={() => navigate(`/projects/${projectId}/buildings/${buildingId}/floors/${floor.floorId}`)}
+                  >
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="font-medium text-gray-900 dark:text-white">{floor.name}</h3>
+                          {floor.levelNumber > 0 && (
+                            <p className="text-sm text-gray-500 dark:text-gray-400">Level {floor.levelNumber}</p>
+                          )}
+                          {floor.code && (
+                            <p className="text-xs text-gray-400 dark:text-gray-500">{floor.code}</p>
+                          )}
+                        </div>
+                        {getStatusBadge(floor.status)}
                       </div>
-                      {getStatusBadge(floor.status)}
-                    </div>
-                    <div className="mt-1">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-gray-500 dark:text-gray-400">Progress</span>
-                        <span className="font-medium text-gray-700 dark:text-gray-300">{floor.progress || 0}%</span>
+                      <div className="mt-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-gray-500 dark:text-gray-400">Progress</span>
+                          <span className="font-medium text-gray-700 dark:text-gray-300">{floor.progress || 0}%</span>
+                        </div>
+                        <ProgressBar value={floor.progress || 0} showLabel={false} />
                       </div>
-                      <ProgressBar value={floor.progress || 0} showLabel={false} />
                     </div>
+                  </Card>
+                </motion.div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {showFloorForm && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-md w-full p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white">Add Level</h2>
+                <button onClick={() => { setShowFloorForm(false); setFloorFormError(''); }}>
+                  <X size={20} className="text-gray-500" />
+                </button>
+              </div>
+              <div className="space-y-4">
+                {floorFormError && (
+                  <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-600 dark:text-red-400">
+                    {floorFormError}
                   </div>
-                </Card>
-              </motion.div>
-            ))}
+                )}
+                <Input label="Level Name" placeholder="e.g., Level 3" value={floorForm.name} onChange={(e) => setFloorForm({ ...floorForm, name: e.target.value })} required />
+                <Input label="Level Number" type="number" placeholder="e.g., 3" value={floorForm.levelNumber} onChange={(e) => setFloorForm({ ...floorForm, levelNumber: parseInt(e.target.value) || 0 })} />
+                <Input label="Level Code" placeholder="e.g., FL-03" value={floorForm.code} onChange={(e) => setFloorForm({ ...floorForm, code: e.target.value })} />
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Status</label>
+                  <select value={floorForm.status} onChange={(e) => setFloorForm({ ...floorForm, status: e.target.value })} className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500">
+                    <option value="active">Active</option>
+                    <option value="planned">Planned</option>
+                    <option value="on_hold">On Hold</option>
+                  </select>
+                </div>
+                <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                  <Button variant="ghost" onClick={() => { setShowFloorForm(false); setFloorFormError(''); }}>Cancel</Button>
+                  <Button variant="primary" onClick={handleCreateFloor} loading={submittingFloor}>Create</Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showActivityForm && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-md w-full p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white">Add Building-Wide Activity</h2>
+                <button onClick={() => { setShowActivityForm(false); setActivityFormError(''); }}>
+                  <X size={20} className="text-gray-500" />
+                </button>
+              </div>
+              <div className="space-y-4">
+                {activityFormError && (
+                  <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-600 dark:text-red-400">
+                    {activityFormError}
+                  </div>
+                )}
+                <Input label="Activity Name" placeholder="e.g., Main Electrical Riser" value={activityForm.name} onChange={(e) => setActivityForm({ ...activityForm, name: e.target.value })} required />
+                <Input label="Activity Code" placeholder="e.g., BLDG-001" value={activityForm.code} onChange={(e) => setActivityForm({ ...activityForm, code: e.target.value })} />
+                <Input label="Description" placeholder="Brief description" value={activityForm.description} onChange={(e) => setActivityForm({ ...activityForm, description: e.target.value })} />
+                <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                  <Button variant="ghost" onClick={() => { setShowActivityForm(false); setActivityFormError(''); }}>Cancel</Button>
+                  <Button variant="primary" onClick={handleCreateActivity} loading={submittingActivity}>Create</Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showDeleteModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-md w-full p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <AlertTriangle size={24} className="text-red-500" />
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white">Delete Building</h2>
+              </div>
+              <p className="text-gray-600 dark:text-gray-300">
+                Are you sure you want to delete <span className="font-semibold">{building.name}</span>?
+                This will permanently remove all levels, wings, spaces, and activities.
+              </p>
+              <div className="flex justify-end gap-3 mt-6">
+                <Button variant="ghost" onClick={() => setShowDeleteModal(false)}>Cancel</Button>
+                <Button variant="danger" onClick={handleDelete} loading={deleting}>Delete</Button>
+              </div>
+            </div>
           </div>
         )}
       </div>
-
-      {showFloorForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-md w-full p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white">Add Level</h2>
-              <button onClick={() => { setShowFloorForm(false); setFloorFormError(''); }}>
-                <X size={20} className="text-gray-500" />
-              </button>
-            </div>
-            <div className="space-y-4">
-              {floorFormError && (
-                <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-600 dark:text-red-400">
-                  {floorFormError}
-                </div>
-              )}
-              <Input label="Level Name" placeholder="e.g., Level 3" value={floorForm.name} onChange={(e) => setFloorForm({ ...floorForm, name: e.target.value })} required />
-              <Input label="Level Number" type="number" placeholder="e.g., 3" value={floorForm.levelNumber} onChange={(e) => setFloorForm({ ...floorForm, levelNumber: parseInt(e.target.value) || 0 })} />
-              <Input label="Level Code" placeholder="e.g., FL-03" value={floorForm.code} onChange={(e) => setFloorForm({ ...floorForm, code: e.target.value })} />
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Status</label>
-                <select value={floorForm.status} onChange={(e) => setFloorForm({ ...floorForm, status: e.target.value })} className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500">
-                  <option value="active">Active</option>
-                  <option value="planned">Planned</option>
-                  <option value="on_hold">On Hold</option>
-                </select>
-              </div>
-              <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
-                <Button variant="ghost" onClick={() => { setShowFloorForm(false); setFloorFormError(''); }}>Cancel</Button>
-                <Button variant="primary" onClick={handleCreateFloor} loading={submittingFloor}>Create</Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showActivityForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-md w-full p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white">Add Building-Wide Activity</h2>
-              <button onClick={() => { setShowActivityForm(false); setActivityFormError(''); }}>
-                <X size={20} className="text-gray-500" />
-              </button>
-            </div>
-            <div className="space-y-4">
-              {activityFormError && (
-                <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-600 dark:text-red-400">
-                  {activityFormError}
-                </div>
-              )}
-              <Input label="Activity Name" placeholder="e.g., Main Electrical Riser" value={activityForm.name} onChange={(e) => setActivityForm({ ...activityForm, name: e.target.value })} required />
-              <Input label="Activity Code" placeholder="e.g., BLDG-001" value={activityForm.code} onChange={(e) => setActivityForm({ ...activityForm, code: e.target.value })} />
-              <Input label="Description" placeholder="Brief description" value={activityForm.description} onChange={(e) => setActivityForm({ ...activityForm, description: e.target.value })} />
-              <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
-                <Button variant="ghost" onClick={() => { setShowActivityForm(false); setActivityFormError(''); }}>Cancel</Button>
-                <Button variant="primary" onClick={handleCreateActivity} loading={submittingActivity}>Create</Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showDeleteModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-md w-full p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <AlertTriangle size={24} className="text-red-500" />
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white">Delete Building</h2>
-            </div>
-            <p className="text-gray-600 dark:text-gray-300">
-              Are you sure you want to delete <span className="font-semibold">{building.name}</span>?
-              This will permanently remove all levels, wings, spaces, and activities.
-            </p>
-            <div className="flex justify-end gap-3 mt-6">
-              <Button variant="ghost" onClick={() => setShowDeleteModal(false)}>Cancel</Button>
-              <Button variant="danger" onClick={handleDelete} loading={deleting}>Delete</Button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    </ProjectGuard>
   );
 }
 
