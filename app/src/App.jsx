@@ -14,6 +14,9 @@ import Profile from './pages/Profile';
 import UserManagement from './pages/UserManagement';
 import Projects from './pages/Projects';
 import ProjectDetail from './pages/ProjectDetail';
+import BuildingDetail from './pages/BuildingDetail';
+import LevelDetail from './pages/LevelDetail';
+import WingDetail from './pages/WingDetail';
 import SpaceDetail from './pages/SpaceDetail';
 import Timeline from './pages/Timeline';
 import Reports from './pages/Reports';
@@ -23,6 +26,9 @@ import Drawings from './pages/Drawings';
 import Analytics from './pages/Analytics';
 import People from './pages/People';
 import Settings from './pages/Settings';
+import TaskAllocation from './pages/TaskAllocation';
+import MyTasks from './pages/MyTasks';
+import PendingApprovals from './pages/PendingApprovals';
 
 function App() {
   return (
@@ -54,6 +60,9 @@ function App() {
               <Route path="profile" element={<Profile />} />
               <Route path="projects" element={<Projects />} />
               <Route path="projects/:projectId" element={<ProjectDetail />} />
+              <Route path="projects/:projectId/buildings/:buildingId" element={<BuildingDetail />} />
+              <Route path="projects/:projectId/buildings/:buildingId/floors/:floorId" element={<LevelDetail />} />
+              <Route path="projects/:projectId/buildings/:buildingId/floors/:floorId/wings/:wingId" element={<WingDetail />} />
               <Route path="spaces/:spaceId" element={<SpaceDetail />} />
               <Route path="timeline" element={<Timeline />} />
               <Route path="reports" element={<Reports />} />
@@ -63,6 +72,10 @@ function App() {
               <Route path="analytics" element={<Analytics />} />
               <Route path="people" element={<People />} />
               <Route path="settings" element={<Settings />} />
+              <Route path="tasks" element={<TaskAllocation />} />
+              <Route path="my-tasks" element={<MyTasks />} />
+              <Route path="pending-approvals" element={<PendingApprovals />} />
+              
               
               {/* Admin Routes - HR and Director only */}
               <Route

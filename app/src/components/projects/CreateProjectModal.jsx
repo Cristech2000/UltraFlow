@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { X, Calendar } from 'lucide-react';
+import { X } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { createProject } from '../../services/projectService';
 import Button from '../common/Button';
@@ -32,7 +32,6 @@ function CreateProjectModal({ onClose, onSuccess }) {
     setError('');
     setLoading(true);
 
-    // Validate required fields
     if (!formData.name.trim()) {
       setError('Project name is required');
       setLoading(false);
@@ -180,7 +179,7 @@ function CreateProjectModal({ onClose, onSuccess }) {
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
-            <Button variant="ghost" onClick={onClose}>
+            <Button type="button" variant="ghost" onClick={onClose}>
               Cancel
             </Button>
             <Button type="submit" variant="primary" loading={loading}>

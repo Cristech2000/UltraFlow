@@ -3,50 +3,83 @@ import { Link, useLocation } from 'react-router-dom';
 import { ChevronRight, Home } from 'lucide-react';
 import { getSpace } from '../../services/spaceService';
 import { getProject } from '../../services/projectService';
+import { getBuilding, getFloor, getWing } from '../../services/spaceService';
 
 function Breadcrumb() {
   const location = useLocation();
   const pathnames = location.pathname.split('/').filter((x) => x);
-  const [spaceName, setSpaceName] = useState(null);
-  const [projectName, setProjectName] = useState(null);
+  const [names, setNames] = useState({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchNames = async () => {
       setLoading(true);
+      const newNames = {};
+      
       try {
-        // Check if we're on a space detail page
-        const spaceIndex = pathnames.indexOf('spaces');
-        if (spaceIndex !== -1 && pathnames[spaceIndex + 1]) {
-          const spaceId = pathnames[spaceIndex + 1];
-          const space = await getSpace(spaceId);
-          if (space) {
-            setSpaceName(space.name);
-            // Also fetch project name if available
-            if (space.projectId) {
-              const project = await getProject(space.projectId);
-              if (project) {
-                setProjectName(project.name);
-              }
-            }
+        // Check each segment for IDs
+        for (let i = 0; i < pathnames.length; i++) {
+          const segment = pathnames[i];
+          
+          // Skip if it's a route segment (projects, buildings, floors, wings, spaces)
+          if (['projects', 'buildings', 'floors', 'wings', 'spaces'].includes(segment)) {
+            continue;
           }
-        } else {
-          // Check if we're on a project detail page
-          const projectIndex = pathnames.indexOf('projects');
-          if (projectIndex !== -1 && pathnames[projectIndex + 1]) {
-            const projectId = pathnames[projectIndex + 1];
-            // Skip if it's a word like 'spaces', 'buildings', etc.
-            if (!['spaces', 'buildings', 'floors', 'wings'].includes(projectId)) {
-              const project = await getProject(projectId);
+          
+          // Check if this is a project ID
+          if (i > 0 && pathnames[i-1] === 'projects' && segment.length > 10) {
+            try {
+              const project = await getProject(segment);
               if (project) {
-                setProjectName(project.name);
+                newNames[segment] = project.name;
               }
-            }
+            } catch (e) {}
+          }
+          
+          // Check if this is a building ID
+          if (i > 0 && pathnames[i-1] === 'buildings' && segment.length > 10) {
+            try {
+              const building = await getBuilding(segment);
+              if (building) {
+                newNames[segment] = building.name;
+              }
+            } catch (e) {}
+          }
+          
+          // Check if this is a floor ID
+          if (i > 0 && pathnames[i-1] === 'floors' && segment.length > 10) {
+            try {
+              const floor = await getFloor(segment);
+              if (floor) {
+                newNames[segment] = floor.name;
+              }
+            } catch (e) {}
+          }
+          
+          // Check if this is a wing ID
+          if (i > 0 && pathnames[i-1] === 'wings' && segment.length > 10) {
+            try {
+              const wing = await getWing(segment);
+              if (wing) {
+                newNames[segment] = wing.name;
+              }
+            } catch (e) {}
+          }
+          
+          // Check if this is a space ID
+          if (i > 0 && pathnames[i-1] === 'spaces' && segment.length > 10) {
+            try {
+              const space = await getSpace(segment);
+              if (space) {
+                newNames[segment] = space.name;
+              }
+            } catch (e) {}
           }
         }
       } catch (err) {
         console.error('Error fetching names:', err);
       } finally {
+        setNames(newNames);
         setLoading(false);
       }
     };
@@ -57,7 +90,7 @@ function Breadcrumb() {
   // Build breadcrumb items
   const buildBreadcrumbs = () => {
     const items = [];
-    let skipNext = false;
+    let currentPath = '';
 
     // Always start with Dashboard
     items.push({
@@ -68,70 +101,33 @@ function Breadcrumb() {
 
     for (let i = 0; i < pathnames.length; i++) {
       const segment = pathnames[i];
+      currentPath += `/${segment}`;
       
-      // Skip if we flagged to skip
-      if (skipNext) {
-        skipNext = false;
+      // Skip route segments (projects, buildings, floors, wings, spaces)
+      if (['projects', 'buildings', 'floors', 'wings', 'spaces'].includes(segment)) {
         continue;
       }
-
-      // Skip "spaces" segment (we handle it differently)
-      if (segment === 'spaces') {
-        // If there's a space ID after "spaces", use it
-        if (pathnames[i + 1]) {
-          const spaceId = pathnames[i + 1];
-          const displayName = spaceName || 'Loading...';
+      
+      // Skip IDs that are too short (shouldn't be IDs)
+      if (segment.length < 10) {
+        // But add them if they're meaningful (like "new" or "edit")
+        if (['new', 'edit', 'create'].includes(segment)) {
           items.push({
-            name: displayName,
-            path: `/spaces/${spaceId}`,
+            name: segment.charAt(0).toUpperCase() + segment.slice(1),
+            path: currentPath,
             isLink: false,
           });
-          skipNext = true; // Skip the next segment (the space ID)
         }
         continue;
       }
-
-      // Skip "projects" segment if it's followed by a project ID
-      if (segment === 'projects' && pathnames[i + 1]) {
-        const nextSegment = pathnames[i + 1];
-        // Check if next segment is a project ID (not a word)
-        if (!['spaces', 'buildings', 'floors', 'wings'].includes(nextSegment)) {
-          const displayName = projectName || nextSegment;
-          items.push({
-            name: displayName,
-            path: `/projects/${nextSegment}`,
-            isLink: false,
-          });
-          skipNext = true; // Skip the next segment (the project ID)
-          continue;
-        } else {
-          // If it's a word like 'spaces', show 'Projects' as a link
-          items.push({
-            name: 'Projects',
-            path: '/projects',
-            isLink: true,
-          });
-          continue;
-        }
-      }
-
-      // Skip Firebase IDs (look like IDs with special chars)
-      if (segment.length > 20 && !['projects', 'spaces'].includes(pathnames[i - 1])) {
-        continue;
-      }
-
-      // Format display name
-      let displayName = segment
-        .replace(/-/g, ' ')
-        .replace(/(^\w|\s\w)/g, (m) => m.toUpperCase());
-
-      // Don't link the last item
+      
+      // Use fetched name or fallback
+      const displayName = names[segment] || segment.substring(0, 8) + '...';
       const isLast = i === pathnames.length - 1;
-      const path = `/${pathnames.slice(0, i + 1).join('/')}`;
-
+      
       items.push({
         name: displayName,
-        path: path,
+        path: currentPath,
         isLink: !isLast,
       });
     }
@@ -141,12 +137,12 @@ function Breadcrumb() {
 
   const breadcrumbs = buildBreadcrumbs();
 
-  // If loading, show a simple version
+  // If loading and we have pathnames, show loading
   if (loading && pathnames.length > 0) {
     return (
       <div className="flex items-center gap-2 text-sm">
         <Home size={16} className="text-gray-400" />
-        <span className="font-medium">Loading...</span>
+        <span className="font-medium text-gray-500 dark:text-gray-400">Loading...</span>
       </div>
     );
   }

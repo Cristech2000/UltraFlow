@@ -18,9 +18,11 @@ import {
   Zap,
   FileText,
   TrendingUp,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-import { getSpace } from '../services/spaceService';
+import { getSpace, deleteSpace } from '../services/spaceService';
 import { getBuilding, getFloor, getWing } from '../services/spaceService';
 import {
   getActivitiesBySpace,
@@ -52,9 +54,14 @@ function SpaceDetail() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [parentNames, setParentNames] = useState({
+    projectName: '',
     buildingName: '',
     floorName: '',
     wingName: '',
+    projectId: '',
+    buildingId: '',
+    floorId: '',
+    wingId: '',
   });
   const [newActivity, setNewActivity] = useState({
     name: '',
@@ -62,15 +69,17 @@ function SpaceDetail() {
     description: '',
     order: 0,
   });
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const canEdit = ['director', 'engineer', 'supervisor', 'foreman', 'documentation_assistant'].includes(userRole);
   const canCreateActivities = ['director', 'engineer', 'supervisor'].includes(userRole);
+  const canDelete = ['director'].includes(userRole);
 
   const loadData = async () => {
     setLoading(true);
     setError('');
     try {
-      // Load space
       const spaceData = await getSpace(spaceId);
       if (!spaceData) {
         setError('Space not found');
@@ -79,9 +88,17 @@ function SpaceDetail() {
       }
       setSpace(spaceData);
 
-      // Load parent names
-      const parentData = { buildingName: '', floorName: '', wingName: '' };
-      
+      const parentData = {
+        projectName: '',
+        buildingName: '',
+        floorName: '',
+        wingName: '',
+        projectId: spaceData.projectId || '',
+        buildingId: spaceData.buildingId || '',
+        floorId: spaceData.floorId || '',
+        wingId: spaceData.wingId || '',
+      };
+
       if (spaceData.buildingId) {
         const building = await getBuilding(spaceData.buildingId);
         parentData.buildingName = building?.name || spaceData.buildingId;
@@ -96,10 +113,9 @@ function SpaceDetail() {
         const wing = await getWing(spaceData.wingId);
         parentData.wingName = wing?.name || spaceData.wingId;
       }
-      
+
       setParentNames(parentData);
 
-      // Load activities
       const activitiesData = await getActivitiesBySpace(spaceId);
       setActivities(activitiesData);
     } catch (err) {
@@ -116,13 +132,24 @@ function SpaceDetail() {
     }
   }, [spaceId]);
 
-  // Calculate space progress
+  const handleDeleteSpace = async () => {
+    setDeleting(true);
+    try {
+      await deleteSpace(spaceId);
+      navigate(`/projects/${space?.projectId}`);
+    } catch (err) {
+      setError('Failed to delete space');
+    } finally {
+      setDeleting(false);
+      setShowDeleteModal(false);
+    }
+  };
+
   const spaceProgress = calculateSpaceProgress(activities);
   const completedCount = activities.filter(a => a.status === 'completed' || a.progress === 100).length;
   const inProgressCount = activities.filter(a => a.status === 'in_progress' || (a.progress > 0 && a.progress < 100)).length;
   const blockedCount = activities.filter(a => a.status === 'blocked').length;
 
-  // Handle create activity
   const handleCreateActivity = async () => {
     if (!newActivity.name.trim()) {
       setFormError('Activity name is required');
@@ -156,7 +183,6 @@ function SpaceDetail() {
     }
   };
 
-  // Handle update activity progress
   const handleUpdateProgress = async (activityId, progress) => {
     try {
       await updateActivityProgress(activityId, progress, user?.uid);
@@ -168,7 +194,6 @@ function SpaceDetail() {
     }
   };
 
-  // Handle update activity status
   const handleUpdateStatus = async (activityId, status) => {
     try {
       await updateActivityStatus(activityId, status, user?.uid);
@@ -179,7 +204,6 @@ function SpaceDetail() {
     }
   };
 
-  // Handle apply template
   const handleApplyTemplate = async (templateId) => {
     setSubmitting(true);
     setFormError('');
@@ -211,7 +235,6 @@ function SpaceDetail() {
     }
   };
 
-  // Handle delete activity
   const handleDeleteActivity = async (activityId) => {
     if (!confirm('Are you sure you want to delete this activity?')) return;
     try {
@@ -252,18 +275,76 @@ function SpaceDetail() {
     );
   }
 
+  const buildBreadcrumb = () => {
+    const items = [];
+    items.push({ name: 'Dashboard', path: '/', isLink: true });
+    
+    const projectName = parentNames.projectName || 'Project';
+    items.push({ 
+      name: projectName, 
+      path: `/projects/${space.projectId}`, 
+      isLink: true 
+    });
+    
+    if (parentNames.buildingId) {
+      items.push({ 
+        name: parentNames.buildingName || 'Building', 
+        path: `/projects/${space.projectId}/buildings/${parentNames.buildingId}`, 
+        isLink: true 
+      });
+    }
+    
+    if (parentNames.floorId) {
+      items.push({ 
+        name: parentNames.floorName || 'Level', 
+        path: `/projects/${space.projectId}/buildings/${parentNames.buildingId}/floors/${parentNames.floorId}`, 
+        isLink: true 
+      });
+    }
+    
+    if (parentNames.wingId) {
+      items.push({ 
+        name: parentNames.wingName || 'Wing', 
+        path: `/projects/${space.projectId}/buildings/${parentNames.buildingId}/floors/${parentNames.floorId}/wings/${parentNames.wingId}`, 
+        isLink: true 
+      });
+    }
+    
+    items.push({ 
+      name: space.name, 
+      path: '', 
+      isLink: false 
+    });
+    
+    return items;
+  };
+
+  const breadcrumbItems = buildBreadcrumb();
+
   return (
     <div className="space-y-6">
       {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-        <Link to="/projects" className="hover:text-primary-500 transition-colors">Projects</Link>
-        <ChevronRight size={14} />
-        <Link to={`/projects/${space.projectId}`} className="hover:text-primary-500 transition-colors">
-          Project
-        </Link>
-        <ChevronRight size={14} />
-        <span className="text-gray-900 dark:text-white font-medium">{space.name}</span>
-      </div>
+      <nav className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 flex-wrap">
+        {breadcrumbItems.map((item, index) => (
+          <React.Fragment key={item.path + index}>
+            {index > 0 && (
+              <ChevronRight size={14} className="text-gray-300 dark:text-gray-600 flex-shrink-0" />
+            )}
+            {item.isLink ? (
+              <Link
+                to={item.path}
+                className="hover:text-primary-500 transition-colors truncate max-w-[120px]"
+              >
+                {item.name}
+              </Link>
+            ) : (
+              <span className="font-medium text-gray-700 dark:text-gray-300 truncate max-w-[120px]">
+                {item.name}
+              </span>
+            )}
+          </React.Fragment>
+        ))}
+      </nav>
 
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
@@ -278,7 +359,6 @@ function SpaceDetail() {
             </Badge>
           </div>
           
-          {/* Parent Hierarchy - Now showing NAMES instead of IDs */}
           <div className="flex items-center gap-2 mt-2 text-sm text-gray-500 dark:text-gray-400 flex-wrap">
             {parentNames.buildingName && (
               <>
@@ -308,13 +388,25 @@ function SpaceDetail() {
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Code: {space.code}</p>
           )}
         </div>
-        <Button
-          variant="ghost"
-          onClick={() => navigate(`/projects/${space.projectId}`)}
-          icon={<ArrowLeft size={16} />}
-        >
-          Back to Project
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="ghost"
+            onClick={() => navigate(`/projects/${space.projectId}`)}
+            icon={<ArrowLeft size={16} />}
+          >
+            Back
+          </Button>
+          {canDelete && (
+            <Button
+              variant="danger"
+              size="sm"
+              icon={<Trash2 size={16} />}
+              onClick={() => setShowDeleteModal(true)}
+            >
+              Delete Space
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Description */}
@@ -427,7 +519,7 @@ function SpaceDetail() {
                 onUpdateStatus={(status) => handleUpdateStatus(activity.activityId, status)}
                 onDelete={() => handleDeleteActivity(activity.activityId)}
                 canEdit={canEdit}
-                canDelete={['director'].includes(userRole)}
+                canDelete={canDelete}
               />
             ))}
           </div>
@@ -533,15 +625,44 @@ function SpaceDetail() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Delete Space Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-md w-full p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <AlertTriangle size={24} className="text-red-500" />
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">Delete Space</h2>
+            </div>
+            <p className="text-gray-600 dark:text-gray-300">
+              Are you sure you want to delete <span className="font-semibold">{space.name}</span>?
+              This will permanently remove all activities.
+            </p>
+            <div className="flex justify-end gap-3 mt-6">
+              <Button variant="ghost" onClick={() => setShowDeleteModal(false)}>Cancel</Button>
+              <Button variant="danger" onClick={handleDeleteSpace} loading={deleting}>
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// ============================================================
 // Activity Item Component
-// ============================================================
-
-function ActivityItem({ activity, isEditing, onEdit, onCancelEdit, onUpdateProgress, onUpdateStatus, onDelete, canEdit, canDelete }) {
+function ActivityItem({ 
+  activity, 
+  isEditing, 
+  onEdit, 
+  onCancelEdit, 
+  onUpdateProgress, 
+  onUpdateStatus, 
+  onDelete, 
+  canEdit, 
+  canDelete
+}) {
   const [progress, setProgress] = useState(activity.progress || 0);
   const statusDisplay = getActivityStatusDisplay(activity.status);
   const statusColor = getActivityStatusColor(activity.status);
@@ -571,7 +692,6 @@ function ActivityItem({ activity, isEditing, onEdit, onCancelEdit, onUpdateProgr
       className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4 hover:shadow-md transition-shadow"
     >
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-        {/* Activity Info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-gray-900 dark:text-white">
@@ -602,7 +722,6 @@ function ActivityItem({ activity, isEditing, onEdit, onCancelEdit, onUpdateProgr
           )}
         </div>
 
-        {/* Progress */}
         <div className="flex items-center gap-3">
           {isEditing ? (
             <div className="flex items-center gap-2">
@@ -652,10 +771,7 @@ function ActivityItem({ activity, isEditing, onEdit, onCancelEdit, onUpdateProgr
   );
 }
 
-// ============================================================
 // Modal Component
-// ============================================================
-
 function Modal({ title, children, onClose, onSubmit, submitting, error }) {
   return (
     <motion.div

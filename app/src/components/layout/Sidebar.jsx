@@ -16,6 +16,8 @@ import {
   ChevronRight,
   Zap,
   Shield,
+  CheckSquare,        // ← Add this
+  UserPlus,           // ← Add this (for Task Allocation)
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../hooks/useAuth';
@@ -33,14 +35,21 @@ const navigation = [
   { name: 'Settings', path: '/settings', icon: Settings },
 ];
 
+// Task management navigation items (shown to appropriate roles)
+const taskNav = [
+  { name: 'Task Allocation', path: '/tasks', icon: UserPlus },
+  { name: 'My Tasks', path: '/my-tasks', icon: CheckSquare },
+  { name: 'Pending Approvals', path: '/pending-approvals', icon: Clock },
+];
+
 function Sidebar({ isOpen, onToggle }) {
   const { userRole } = useAuth();
   const isAdmin = ['hr', 'director'].includes(userRole);
+  const canManageTasks = ['director', 'supervisor', 'foreman'].includes(userRole);
+  const isElectrician = userRole === 'electrician';
 
-  // Admin navigation items (shown only to HR and Directors)
-  const adminNav = [
-    { name: 'User Management', path: '/admin/users', icon: Shield },
-  ];
+  // Show My Tasks to electricians, Task Allocation and Pending Approvals to supervisors/foremen/directors
+  const showTaskNav = canManageTasks || isElectrician;
 
   return (
     <motion.aside
@@ -105,6 +114,53 @@ function Sidebar({ isOpen, onToggle }) {
           </NavLink>
         ))}
 
+        {/* Task Management Section */}
+        {showTaskNav && (
+          <>
+            <div className="my-2 border-t border-gray-700/50" />
+            <p className={`text-xs text-gray-500 uppercase tracking-wider px-3 py-2 ${!isOpen && 'sr-only'}`}>
+              Tasks
+            </p>
+            {taskNav.map((item) => {
+              // Only show Task Allocation and Pending Approvals to supervisors/foremen/directors
+              if ((item.path === '/tasks' || item.path === '/pending-approvals') && !canManageTasks) {
+                return null;
+              }
+              // Only show My Tasks to electricians
+              if (item.path === '/my-tasks' && !isElectrician && !canManageTasks) {
+                return null;
+              }
+              return (
+                <NavLink
+                  key={item.path}
+                  to={item.path}
+                  className={({ isActive }) =>
+                    cn(
+                      'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all-200 group',
+                      'hover:bg-gray-700/50 hover:text-white',
+                      isActive
+                        ? 'bg-primary-600 text-white shadow-lg shadow-primary-600/25'
+                        : 'text-gray-300'
+                    )
+                  }
+                >
+                  <item.icon className="w-5 h-5 flex-shrink-0" />
+                  <motion.span
+                    animate={{
+                      opacity: isOpen ? 1 : 0,
+                      width: isOpen ? 'auto' : 0,
+                    }}
+                    transition={{ duration: 0.2 }}
+                    className="whitespace-nowrap overflow-hidden"
+                  >
+                    {item.name}
+                  </motion.span>
+                </NavLink>
+              );
+            })}
+          </>
+        )}
+
         {/* Admin Section */}
         {isAdmin && (
           <>
@@ -112,33 +168,30 @@ function Sidebar({ isOpen, onToggle }) {
             <p className={`text-xs text-gray-500 uppercase tracking-wider px-3 py-2 ${!isOpen && 'sr-only'}`}>
               Admin
             </p>
-            {adminNav.map((item) => (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                className={({ isActive }) =>
-                  cn(
-                    'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all-200 group',
-                    'hover:bg-gray-700/50 hover:text-white',
-                    isActive
-                      ? 'bg-primary-600 text-white shadow-lg shadow-primary-600/25'
-                      : 'text-gray-300'
-                  )
-                }
+            <NavLink
+              to="/admin/users"
+              className={({ isActive }) =>
+                cn(
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all-200 group',
+                  'hover:bg-gray-700/50 hover:text-white',
+                  isActive
+                    ? 'bg-primary-600 text-white shadow-lg shadow-primary-600/25'
+                    : 'text-gray-300'
+                )
+              }
+            >
+              <Shield className="w-5 h-5 flex-shrink-0" />
+              <motion.span
+                animate={{
+                  opacity: isOpen ? 1 : 0,
+                  width: isOpen ? 'auto' : 0,
+                }}
+                transition={{ duration: 0.2 }}
+                className="whitespace-nowrap overflow-hidden"
               >
-                <item.icon className="w-5 h-5 flex-shrink-0" />
-                <motion.span
-                  animate={{
-                    opacity: isOpen ? 1 : 0,
-                    width: isOpen ? 'auto' : 0,
-                  }}
-                  transition={{ duration: 0.2 }}
-                  className="whitespace-nowrap overflow-hidden"
-                >
-                  {item.name}
-                </motion.span>
-              </NavLink>
-            ))}
+                User Management
+              </motion.span>
+            </NavLink>
           </>
         )}
       </nav>

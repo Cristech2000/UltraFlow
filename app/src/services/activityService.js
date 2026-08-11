@@ -1,14 +1,19 @@
 import { database } from '../lib/firebase';
-import { ref, set, get, update, push, remove, query, orderByChild, equalTo } from 'firebase/database';
-
-/**
- * Activity Service - Handles all activity-related Realtime Database operations
- */
+import { ref, set, get, update, push, remove } from 'firebase/database';
 
 const ACTIVITIES_PATH = 'activities';
 
+// Activity scope types
+export const ACTIVITY_SCOPES = {
+  PROJECT: 'project',
+  BUILDING: 'building',
+  LEVEL: 'level',
+  WING: 'wing',
+  SPACE: 'space',
+};
+
 /**
- * Create a new activity
+ * Create a new activity with scope
  */
 export async function createActivity(activityData, userId) {
   try {
@@ -19,16 +24,23 @@ export async function createActivity(activityData, userId) {
     const activity = {
       activityId,
       projectId: activityData.projectId,
-      buildingId: activityData.buildingId,
-      floorId: activityData.floorId,
-      wingId: activityData.wingId,
-      spaceId: activityData.spaceId,
+      buildingId: activityData.buildingId || null,
+      floorId: activityData.floorId || null,
+      wingId: activityData.wingId || null,
+      spaceId: activityData.spaceId || null,
+      scope: activityData.scope || ACTIVITY_SCOPES.SPACE,
       name: activityData.name,
       code: activityData.code || '',
       description: activityData.description || '',
       order: activityData.order || 0,
       status: activityData.status || 'not_started',
       progress: activityData.progress || 0,
+      progressSource: 'automatic',  // ← CHANGED FROM 'manual' TO 'automatic'
+      automaticProgress: 0,
+      manualProgress: null,
+      manualOverrideReason: null,
+      manualOverrideBy: null,
+      manualOverrideAt: null,
       plannedStartDate: activityData.plannedStartDate || null,
       plannedEndDate: activityData.plannedEndDate || null,
       actualStartDate: activityData.actualStartDate || null,
@@ -43,189 +55,6 @@ export async function createActivity(activityData, userId) {
     return activity;
   } catch (error) {
     console.error('Error creating activity:', error);
-    throw error;
-  }
-}
-
-/**
- * Get an activity by ID
- */
-export async function getActivity(activityId) {
-  try {
-    const activityRef = ref(database, `${ACTIVITIES_PATH}/${activityId}`);
-    const snapshot = await get(activityRef);
-    return snapshot.exists() ? snapshot.val() : null;
-  } catch (error) {
-    console.error('Error fetching activity:', error);
-    throw error;
-  }
-}
-
-/**
- * Get all activities for a space
- */
-export async function getActivitiesBySpace(spaceId) {
-  try {
-    const activitiesRef = ref(database, ACTIVITIES_PATH);
-    const snapshot = await get(activitiesRef);
-    
-    if (snapshot.exists()) {
-      const activities = snapshot.val();
-      return Object.keys(activities)
-        .map(key => ({ ...activities[key] }))
-        .filter(activity => activity.spaceId === spaceId)
-        .sort((a, b) => (a.order || 0) - (b.order || 0));
-    }
-    return [];
-  } catch (error) {
-    console.error('Error fetching activities by space:', error);
-    throw error;
-  }
-}
-
-/**
- * Get all activities for a wing
- */
-export async function getActivitiesByWing(wingId) {
-  try {
-    const activitiesRef = ref(database, ACTIVITIES_PATH);
-    const snapshot = await get(activitiesRef);
-    
-    if (snapshot.exists()) {
-      const activities = snapshot.val();
-      return Object.keys(activities)
-        .map(key => ({ ...activities[key] }))
-        .filter(activity => activity.wingId === wingId);
-    }
-    return [];
-  } catch (error) {
-    console.error('Error fetching activities by wing:', error);
-    throw error;
-  }
-}
-
-/**
- * Get all activities for a floor
- */
-export async function getActivitiesByFloor(floorId) {
-  try {
-    const activitiesRef = ref(database, ACTIVITIES_PATH);
-    const snapshot = await get(activitiesRef);
-    
-    if (snapshot.exists()) {
-      const activities = snapshot.val();
-      return Object.keys(activities)
-        .map(key => ({ ...activities[key] }))
-        .filter(activity => activity.floorId === floorId);
-    }
-    return [];
-  } catch (error) {
-    console.error('Error fetching activities by floor:', error);
-    throw error;
-  }
-}
-
-/**
- * Get all activities for a building
- */
-export async function getActivitiesByBuilding(buildingId) {
-  try {
-    const activitiesRef = ref(database, ACTIVITIES_PATH);
-    const snapshot = await get(activitiesRef);
-    
-    if (snapshot.exists()) {
-      const activities = snapshot.val();
-      return Object.keys(activities)
-        .map(key => ({ ...activities[key] }))
-        .filter(activity => activity.buildingId === buildingId);
-    }
-    return [];
-  } catch (error) {
-    console.error('Error fetching activities by building:', error);
-    throw error;
-  }
-}
-
-/**
- * Get all activities for a project
- */
-export async function getActivitiesByProject(projectId) {
-  try {
-    const activitiesRef = ref(database, ACTIVITIES_PATH);
-    const snapshot = await get(activitiesRef);
-    
-    if (snapshot.exists()) {
-      const activities = snapshot.val();
-      return Object.keys(activities)
-        .map(key => ({ ...activities[key] }))
-        .filter(activity => activity.projectId === projectId);
-    }
-    return [];
-  } catch (error) {
-    console.error('Error fetching activities by project:', error);
-    throw error;
-  }
-}
-
-/**
- * Update an activity
- */
-export async function updateActivity(activityId, updates, userId) {
-  try {
-    const activityRef = ref(database, `${ACTIVITIES_PATH}/${activityId}`);
-    await update(activityRef, {
-      ...updates,
-      updatedAt: new Date().toISOString(),
-      updatedBy: userId || '',
-    });
-    return await getActivity(activityId);
-  } catch (error) {
-    console.error('Error updating activity:', error);
-    throw error;
-  }
-}
-
-/**
- * Update activity progress (auto-updates status)
- */
-export async function updateActivityProgress(activityId, progress, userId) {
-  try {
-    // Validate progress
-    if (progress < 0 || progress > 100) {
-      throw new Error('Progress must be between 0 and 100');
-    }
-
-    // Determine status based on progress
-    let status = 'not_started';
-    if (progress === 100) {
-      status = 'completed';
-    } else if (progress > 0) {
-      status = 'in_progress';
-    }
-
-    const updates = {
-      progress: progress,
-      status: status,
-      updatedAt: new Date().toISOString(),
-      updatedBy: userId || '',
-    };
-
-    // If progress is 100, set completion date
-    if (progress === 100) {
-      updates.actualCompletionDate = new Date().toISOString();
-    }
-
-    // If progress goes from 0 to >0, set actual start date
-    const activity = await getActivity(activityId);
-    if (activity && activity.progress === 0 && progress > 0) {
-      updates.actualStartDate = new Date().toISOString();
-    }
-
-    const activityRef = ref(database, `${ACTIVITIES_PATH}/${activityId}`);
-    await update(activityRef, updates);
-    return await getActivity(activityId);
-  } catch (error) {
-    console.error('Error updating activity progress:', error);
     throw error;
   }
 }
@@ -249,25 +78,216 @@ export async function updateActivityStatus(activityId, status, userId) {
 }
 
 /**
- * Archive an activity
+ * Get activities by scope
  */
-export async function archiveActivity(activityId, userId) {
+export async function getActivitiesByScope(projectId, scope, scopeId) {
+  try {
+    const activitiesRef = ref(database, ACTIVITIES_PATH);
+    const snapshot = await get(activitiesRef);
+    
+    if (snapshot.exists()) {
+      const activities = snapshot.val();
+      const results = Object.keys(activities)
+        .map(key => ({ 
+          activityId: key,
+          ...activities[key] 
+        }))
+        .filter(activity => {
+          if (activity.projectId !== projectId) return false;
+          if (activity.scope !== scope) return false;
+          
+          switch (scope) {
+            case ACTIVITY_SCOPES.BUILDING:
+              return activity.buildingId === scopeId;
+            case ACTIVITY_SCOPES.LEVEL:
+              return activity.floorId === scopeId;
+            case ACTIVITY_SCOPES.WING:
+              return activity.wingId === scopeId;
+            case ACTIVITY_SCOPES.SPACE:
+              return activity.spaceId === scopeId;
+            case ACTIVITY_SCOPES.PROJECT:
+              return true;
+            default:
+              return false;
+          }
+        })
+        .sort((a, b) => (a.order || 0) - (b.order || 0));
+      
+      return results;
+    }
+    return [];
+  } catch (error) {
+    console.error('Error fetching activities by scope:', error);
+    return [];
+  }
+}
+
+/**
+ * Get activities by project
+ */
+export async function getActivitiesByProject(projectId) {
+  try {
+    const activitiesRef = ref(database, ACTIVITIES_PATH);
+    const snapshot = await get(activitiesRef);
+    
+    if (snapshot.exists()) {
+      const activities = snapshot.val();
+      return Object.keys(activities)
+        .map(key => ({ 
+          activityId: key,
+          ...activities[key] 
+        }))
+        .filter(activity => activity.projectId === projectId)
+        .sort((a, b) => (a.order || 0) - (b.order || 0));
+    }
+    return [];
+  } catch (error) {
+    console.error('Error fetching activities by project:', error);
+    return [];
+  }
+}
+
+/**
+ * Get activities by space
+ */
+export async function getActivitiesBySpace(spaceId) {
+  try {
+    const activitiesRef = ref(database, ACTIVITIES_PATH);
+    const snapshot = await get(activitiesRef);
+    
+    if (snapshot.exists()) {
+      const activities = snapshot.val();
+      return Object.keys(activities)
+        .map(key => ({ 
+          activityId: key,
+          ...activities[key] 
+        }))
+        .filter(activity => activity.spaceId === spaceId)
+        .sort((a, b) => (a.order || 0) - (b.order || 0));
+    }
+    return [];
+  } catch (error) {
+    console.error('Error fetching activities by space:', error);
+    return [];
+  }
+}
+
+/**
+ * Get activity by ID
+ */
+export async function getActivity(activityId) {
   try {
     const activityRef = ref(database, `${ACTIVITIES_PATH}/${activityId}`);
-    await update(activityRef, {
-      status: 'archived',
-      updatedAt: new Date().toISOString(),
-      updatedBy: userId || '',
-    });
-    return true;
+    const snapshot = await get(activityRef);
+    return snapshot.exists() ? snapshot.val() : null;
   } catch (error) {
-    console.error('Error archiving activity:', error);
+    console.error('Error fetching activity:', error);
     throw error;
   }
 }
 
 /**
- * Delete an activity (hard delete)
+ * Update activity
+ */
+export async function updateActivity(activityId, updates, userId) {
+  try {
+    const activityRef = ref(database, `${ACTIVITIES_PATH}/${activityId}`);
+    await update(activityRef, {
+      ...updates,
+      updatedAt: new Date().toISOString(),
+      updatedBy: userId || '',
+    });
+    return await getActivity(activityId);
+  } catch (error) {
+    console.error('Error updating activity:', error);
+    throw error;
+  }
+}
+
+/**
+ * Update activity progress with manual override support
+ */
+export async function updateActivityProgress(activityId, progress, userId, reason = null) {
+  try {
+    if (progress < 0 || progress > 100) {
+      throw new Error('Progress must be between 0 and 100');
+    }
+
+    const activity = await getActivity(activityId);
+    if (!activity) throw new Error('Activity not found');
+
+    const updates = {
+      progress: progress,
+      updatedAt: new Date().toISOString(),
+      updatedBy: userId || '',
+      progressSource: 'manual',
+      manualProgress: progress,
+      manualOverrideReason: reason || null,
+      manualOverrideBy: userId || null,
+      manualOverrideAt: new Date().toISOString(),
+    };
+
+    if (progress === 100) {
+      updates.status = 'completed';
+      updates.actualCompletionDate = new Date().toISOString();
+    } else if (progress > 0) {
+      updates.status = 'in_progress';
+      if (!activity.actualStartDate) {
+        updates.actualStartDate = new Date().toISOString();
+      }
+    } else {
+      updates.status = 'not_started';
+    }
+
+    const activityRef = ref(database, `${ACTIVITIES_PATH}/${activityId}`);
+    await update(activityRef, updates);
+    return await getActivity(activityId);
+  } catch (error) {
+    console.error('Error updating activity progress:', error);
+    throw error;
+  }
+}
+
+/**
+ * Restore automatic progress (remove manual override)
+ */
+export async function restoreAutomaticProgress(activityId, userId) {
+  try {
+    const activity = await getActivity(activityId);
+    if (!activity) throw new Error('Activity not found');
+
+    const automaticProgress = activity.automaticProgress || 0;
+    
+    const updates = {
+      progress: automaticProgress,
+      progressSource: 'automatic',
+      manualProgress: null,
+      manualOverrideReason: null,
+      manualOverrideBy: null,
+      manualOverrideAt: null,
+      updatedAt: new Date().toISOString(),
+      updatedBy: userId || '',
+    };
+
+    if (automaticProgress === 100) {
+      updates.status = 'completed';
+    } else if (automaticProgress > 0) {
+      updates.status = 'in_progress';
+    } else {
+      updates.status = 'not_started';
+    }
+
+    const activityRef = ref(database, `${ACTIVITIES_PATH}/${activityId}`);
+    await update(activityRef, updates);
+    return await getActivity(activityId);
+  } catch (error) {
+    console.error('Error restoring automatic progress:', error);
+    throw error;
+  }
+}
+
+/**
+ * Delete activity
  */
 export async function deleteActivity(activityId) {
   try {
@@ -294,6 +314,7 @@ export async function createActivitiesFromTemplate(spaceData, templateActivities
         floorId: spaceData.floorId,
         wingId: spaceData.wingId,
         spaceId: spaceData.spaceId,
+        scope: ACTIVITY_SCOPES.SPACE,
         name: template.name,
         code: template.code || '',
         description: template.description || '',
