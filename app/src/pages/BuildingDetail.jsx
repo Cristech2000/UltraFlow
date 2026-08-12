@@ -19,9 +19,10 @@ import {
   PauseCircle,
   XCircle,
   Edit2,
+  Copy
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-import { getBuilding, getFloorsByBuilding, deleteBuilding, createFloor, getWingsByFloor, getSpacesByWing } from '../services/spaceService';
+import { getBuilding, getFloorsByBuilding, deleteBuilding, createFloor, getWingsByFloor, getSpacesByWing, bulkCloneFloor } from '../services/spaceService';
 import { getActivitiesByScope, ACTIVITY_SCOPES, createActivity, updateActivityProgress, updateActivityStatus, deleteActivity } from '../services/activityService';
 import { getProject } from '../services/projectService';
 import { calculateBuildingProgress, calculateWingProgress, calculateLevelProgress, calculateSpaceProgress } from '../utils/progressUtils';
@@ -56,6 +57,16 @@ function BuildingDetail() {
   const [activityForm, setActivityForm] = useState({ name: '', code: '', description: '' });
   const [submittingActivity, setSubmittingActivity] = useState(false);
   const [activityFormError, setActivityFormError] = useState('');
+
+  // Smart Clone State
+  const [showCloneModal, setShowCloneModal] = useState(false);
+  const [cloningFloor, setCloningFloor] = useState(null);
+  const [isCloning, setIsCloning] = useState(false);
+  const [cloneConfig, setCloneConfig] = useState({
+    count: 1,
+    prefix: '',
+    startNumber: 1
+  });
 
   const canEdit = ['director', 'engineer', 'supervisor'].includes(userRole);
   const canDelete = ['director'].includes(userRole);
@@ -166,6 +177,50 @@ function BuildingDetail() {
     }
   };
 
+  const openCloneModal = (floor) => {
+    setCloningFloor(floor);
+    
+    const match = floor.name.match(/^(.*?)(\d+)$/);
+    let defaultPrefix = floor.name + ' ';
+    let defaultStart = 1;
+    
+    if (match) {
+      defaultPrefix = match[1];
+      defaultStart = parseInt(match[2], 10) + 1;
+    }
+
+    setCloneConfig({
+      count: 1,
+      prefix: defaultPrefix,
+      startNumber: defaultStart
+    });
+    setShowCloneModal(true);
+  };
+
+  const handleCloneFloor = async () => {
+    if (cloneConfig.count < 1 || cloneConfig.count > 100) {
+      setFloorFormError('Please enter a number of copies between 1 and 100');
+      return;
+    }
+    if (cloneConfig.startNumber < 0) {
+      setFloorFormError('Starting number cannot be negative');
+      return;
+    }
+    
+    setIsCloning(true);
+    setFloorFormError('');
+    try {
+      await bulkCloneFloor(cloningFloor.floorId, cloneConfig, user?.uid);
+      setShowCloneModal(false);
+      setCloningFloor(null);
+      await loadData();
+    } catch (err) {
+      setFloorFormError(err.message || 'Failed to clone level');
+    } finally {
+      setIsCloning(false);
+    }
+  };
+
   const handleCreateActivity = async () => {
     if (!activityForm.name.trim()) {
       setActivityFormError('Activity name is required');
@@ -220,7 +275,7 @@ function BuildingDetail() {
   };
 
   const handleDeleteActivity = async (activityId) => {
-    if (!confirm('Are you sure you want to delete this activity?')) return;
+    if (!window.confirm('Are you sure you want to delete this activity?')) return;
     try {
       await deleteActivity(activityId);
       await loadData();
@@ -413,50 +468,110 @@ function BuildingDetail() {
           {floors.length === 0 ? (
             <Card>
               <div className="py-8 text-center">
-                <Home size={32} className="text-gray-400 mx-auto mb-2" />
+                <Layers size={32} className="text-gray-400 mx-auto mb-2" />
                 <p className="text-gray-500 dark:text-gray-400">No levels yet</p>
+                {canEdit && (
+                  <Button variant="ghost" size="sm" className="mt-2" onClick={() => setShowFloorForm(true)}>
+                    Create the first level template
+                  </Button>
+                )}
               </div>
             </Card>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {floors.map((floor) => (
-                <motion.div
-                  key={floor.floorId}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                >
-                  <Card
-                    className="cursor-pointer hover:shadow-lg transition-shadow"
-                    onClick={() => navigate(`/projects/${projectId}/buildings/${buildingId}/floors/${floor.floorId}`)}
-                  >
-                    <div className="flex flex-col gap-2">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h3 className="font-medium text-gray-900 dark:text-white">{floor.name}</h3>
-                          {floor.levelNumber > 0 && (
-                            <p className="text-sm text-gray-500 dark:text-gray-400">Level {floor.levelNumber}</p>
-                          )}
-                          {floor.code && (
-                            <p className="text-xs text-gray-400 dark:text-gray-500">{floor.code}</p>
-                          )}
-                        </div>
-                        {getStatusBadge(floor.status)}
-                      </div>
-                      <div className="mt-1">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-gray-500 dark:text-gray-400">Progress</span>
-                          <span className="font-medium text-gray-700 dark:text-gray-300">{floor.progress || 0}%</span>
-                        </div>
-                        <ProgressBar value={floor.progress || 0} showLabel={false} />
-                      </div>
-                    </div>
-                  </Card>
-                </motion.div>
+                <FloorCard 
+                  key={floor.floorId} 
+                  floor={floor} 
+                  projectIds={{projectId, buildingId}}
+                  getStatusBadge={getStatusBadge}
+                  onDelete={loadData}
+                  onClone={() => openCloneModal(floor)}
+                  canEdit={canEdit}
+                  canDelete={canDelete}
+                />
               ))}
             </div>
           )}
         </div>
 
+        {/* Smart Clone Level Modal */}
+        {showCloneModal && cloningFloor && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-md w-full p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white">Deep Clone Level</h2>
+                <button onClick={() => { setShowCloneModal(false); setFloorFormError(''); }}>
+                  <X size={20} className="text-gray-500" />
+                </button>
+              </div>
+              
+              <div className="space-y-4">
+                {floorFormError && (
+                  <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-600 dark:text-red-400">
+                    {floorFormError}
+                  </div>
+                )}
+                
+                <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-100 dark:border-blue-800">
+                  <p className="text-sm text-blue-800 dark:text-blue-300">
+                    Template: <strong>{cloningFloor.name}</strong><br/>
+                    <span className="text-xs opacity-80">This will duplicate the level AND all of its wings, spaces, and activities perfectly.</span>
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Prefix</label>
+                    <input
+                      type="text"
+                      value={cloneConfig.prefix}
+                      onChange={(e) => setCloneConfig({ ...cloneConfig, prefix: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Start Number</label>
+                    <input
+                      type="number"
+                      value={cloneConfig.startNumber}
+                      onChange={(e) => setCloneConfig({ ...cloneConfig, startNumber: parseInt(e.target.value) || 0 })}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">How many levels to stack?</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={cloneConfig.count}
+                    onChange={(e) => setCloneConfig({ ...cloneConfig, count: parseInt(e.target.value) || 1 })}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+
+                {/* Live Preview */}
+                <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg text-sm text-gray-600 dark:text-gray-400">
+                  <span className="font-medium text-gray-900 dark:text-white">Preview: </span>
+                  {cloneConfig.prefix}{cloneConfig.startNumber}
+                  {cloneConfig.count > 1 && (
+                    <span> ... to {cloneConfig.prefix}{cloneConfig.startNumber + cloneConfig.count - 1}</span>
+                  )}
+                </div>
+
+                <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                  <Button variant="ghost" onClick={() => { setShowCloneModal(false); setFloorFormError(''); }}>Cancel</Button>
+                  <Button variant="primary" onClick={handleCloneFloor} loading={isCloning} icon={<Copy size={16} />}>Stack Levels</Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Add Level Form Modal */}
         {showFloorForm && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-md w-full p-6">
@@ -492,6 +607,7 @@ function BuildingDetail() {
           </div>
         )}
 
+        {/* Add Activity Form Modal */}
         {showActivityForm && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-md w-full p-6">
@@ -519,6 +635,7 @@ function BuildingDetail() {
           </div>
         )}
 
+        {/* Delete Modal */}
         {showDeleteModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-md w-full p-6">
@@ -629,7 +746,7 @@ function ActivityItem({
                 {activity.progress || 0}%
               </span>
               {canEdit && (
-                <button onClick={onEdit} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" title="Update Progress">
+                <button onClick={onEdit} className="p-1 rounded-lg hover:bg-gray-100 dark:bg-gray-800 transition-colors" title="Update Progress">
                   <Edit2 size={14} className="text-gray-400 hover:text-primary-500" />
                 </button>
               )}
@@ -643,6 +760,97 @@ function ActivityItem({
         </div>
       </div>
     </motion.div>
+  );
+}
+
+function FloorCard({ floor, projectIds, getStatusBadge, onDelete, onClone, canEdit, canDelete }) {
+  const navigate = useNavigate();
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const { name, code, status, levelNumber, floorId } = floor;
+  const { projectId, buildingId } = projectIds;
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await deleteFloor(floorId);
+      onDelete();
+    } catch (err) {
+      console.error('Error deleting level:', err);
+    } finally {
+      setDeleting(false);
+      setShowDeleteModal(false);
+    }
+  };
+
+  return (
+    <>
+      <Card 
+        className="cursor-pointer hover:shadow-lg transition-shadow relative group"
+        onClick={() => navigate(`/projects/${projectId}/buildings/${buildingId}/floors/${floorId}`)}
+      >
+        <div className="p-4">
+          <div className="flex items-start justify-between mb-2">
+            <div>
+              <h3 className="font-semibold text-gray-900 dark:text-white">{name}</h3>
+              <div className="flex gap-2 mt-1">
+                <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
+                  Order: {levelNumber}
+                </span>
+                {code && <span className="text-xs text-gray-500 dark:text-gray-400">{code}</span>}
+              </div>
+            </div>
+          </div>
+          <div className="mt-3 flex items-center justify-between">
+            {getStatusBadge(status)}
+            <div className="flex items-center text-sm text-primary-600 dark:text-primary-400">
+              Open <ChevronRight size={16} className="ml-1" />
+            </div>
+          </div>
+
+          <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 flex flex-col gap-1 transition-all">
+            {canEdit && (
+              <button
+                className="p-1.5 rounded-lg bg-white dark:bg-gray-800 shadow shadow-black/10 hover:bg-primary-50 dark:hover:bg-primary-900/30 text-primary-500 transition-colors"
+                onClick={(e) => { e.stopPropagation(); onClone(); }}
+                title="Deep Clone Level"
+              >
+                <Copy size={16} />
+              </button>
+            )}
+            {canDelete && (
+              <button
+                className="p-1.5 rounded-lg bg-white dark:bg-gray-800 shadow shadow-black/10 hover:bg-red-50 dark:hover:bg-red-900/30 text-red-500 transition-colors"
+                onClick={(e) => { e.stopPropagation(); setShowDeleteModal(true); }}
+                title="Delete Level"
+              >
+                <Trash2 size={16} />
+              </button>
+            )}
+          </div>
+        </div>
+      </Card>
+
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-md w-full p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <AlertTriangle size={24} className="text-red-500" />
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">Delete Level</h2>
+            </div>
+            <p className="text-gray-600 dark:text-gray-300">
+              Are you sure you want to delete <span className="font-semibold">{name}</span>?
+              This will permanently remove all wings, spaces, and activities inside it.
+            </p>
+            <div className="flex justify-end gap-3 mt-6">
+              <Button variant="ghost" onClick={() => setShowDeleteModal(false)}>Cancel</Button>
+              <Button variant="danger" onClick={handleDelete} loading={deleting}>Delete</Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

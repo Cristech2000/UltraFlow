@@ -163,6 +163,130 @@ export async function updateFloor(floorId, updates) {
   }
 }
 
+/**
+ * 🔥 MEGA CLONER: Deep clones a Floor, including all its Wings, Spaces, and Activities.
+ */
+export async function bulkCloneFloor(floorId, cloneConfig, userId) {
+  try {
+    const origFloor = await getFloor(floorId);
+    if (!origFloor) throw new Error('Original floor not found');
+
+    const { count, prefix, startNumber } = cloneConfig;
+
+    // 1. Fetch all hierarchical children
+    const origWings = await getWingsByFloor(floorId);
+    const origSpaces = await getSpacesByFloor(floorId);
+    
+    // Fetch all activities attached anywhere within this floor
+    const activitiesQuery = query(ref(database, 'activities'), orderByChild('floorId'), equalTo(floorId));
+    const actsSnap = await get(activitiesQuery);
+    const origActs = actsSnap.exists() ? Object.values(actsSnap.val()) : [];
+
+    const floorsRef = ref(database, FLOORS_PATH);
+    const wingsRef = ref(database, WINGS_PATH);
+    const spacesRef = ref(database, SPACES_PATH);
+    const activitiesRef = ref(database, 'activities');
+    
+    const createdFloors = [];
+
+    // 2. Run the duplication loop
+    for (let i = 0; i < count; i++) {
+      const currentNumber = startNumber + i;
+      const newFloorName = `${prefix}${currentNumber}`;
+      
+      // Create New Floor
+      const newFloorRef = push(floorsRef);
+      const newFloorId = newFloorRef.key;
+      
+      const newFloor = {
+        ...origFloor,
+        floorId: newFloorId,
+        name: newFloorName,
+        levelNumber: (origFloor.levelNumber || 0) + i + 1, // Auto-increment structural level
+        code: origFloor.code ? `${origFloor.code.replace(/\d+$/, '')}${currentNumber}` : '',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        createdBy: userId || '',
+      };
+      await set(newFloorRef, newFloor);
+      createdFloors.push(newFloor);
+
+      // Maps to track old IDs to new IDs so child elements get linked to the correct clones
+      const wingIdMap = {};
+      const spaceIdMap = {};
+
+      // Clone Wings
+      for (const ow of origWings) {
+        const newWingRef = push(wingsRef);
+        const newWingId = newWingRef.key;
+        wingIdMap[ow.wingId] = newWingId;
+
+        const newWing = {
+          ...ow,
+          wingId: newWingId,
+          floorId: newFloorId,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          createdBy: userId || '',
+        };
+        await set(newWingRef, newWing);
+      }
+
+      // Clone Spaces
+      for (const os of origSpaces) {
+        const newSpaceRef = push(spacesRef);
+        const newSpaceId = newSpaceRef.key;
+        spaceIdMap[os.spaceId] = newSpaceId;
+
+        const newSpace = {
+          ...os,
+          spaceId: newSpaceId,
+          floorId: newFloorId,
+          wingId: wingIdMap[os.wingId] || os.wingId, // Link to the newly cloned wing!
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          createdBy: userId || '',
+        };
+        await set(newSpaceRef, newSpace);
+      }
+
+      // Clone Activities
+      for (const oa of origActs) {
+        const newActRef = push(activitiesRef);
+        const newActId = newActRef.key;
+        
+        const newAct = {
+          ...oa,
+          activityId: newActId,
+          floorId: newFloorId,
+          wingId: oa.wingId ? wingIdMap[oa.wingId] : null,
+          spaceId: oa.spaceId ? spaceIdMap[oa.spaceId] : null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          createdBy: userId || '',
+          // Reset progress for the fresh clone
+          progress: 0,
+          automaticProgress: 0,
+          status: 'not_started',
+          actualStartDate: null,
+          actualCompletionDate: null,
+          manualOverrideReason: null,
+          manualOverrideBy: null,
+          manualOverrideAt: null,
+          manualProgress: null,
+          progressSource: 'automatic'
+        };
+        await set(newActRef, newAct);
+      }
+    }
+
+    return createdFloors;
+  } catch (error) {
+    console.error('Error in deep floor cloning:', error);
+    throw error;
+  }
+}
+
 // ============================================================
 // WINGS
 // ============================================================
@@ -273,6 +397,84 @@ export async function createSpace(spaceData, wingId, floorId, buildingId, projec
   }
 }
 
+/**
+ * 🔥 SMART BULK CLONE: Generates names automatically using prefix + startNumber
+ */
+export async function bulkCloneSpace(spaceId, cloneConfig, userId) {
+  try {
+    const originalSpace = await getSpace(spaceId);
+    if (!originalSpace) throw new Error('Original space not found');
+
+    const { count, prefix, startNumber } = cloneConfig;
+
+    const activitiesQuery = query(ref(database, 'activities'), orderByChild('spaceId'), equalTo(spaceId));
+    const actsSnap = await get(activitiesQuery);
+    const originalActivities = actsSnap.exists() ? Object.values(actsSnap.val()) : [];
+
+    const spacesRef = ref(database, SPACES_PATH);
+    const activitiesRef = ref(database, 'activities');
+    const createdSpaces = [];
+
+    for (let i = 0; i < count; i++) {
+      const newSpaceRef = push(spacesRef);
+      const newSpaceId = newSpaceRef.key;
+      
+      const currentNumber = startNumber + i;
+      const newSpaceName = `${prefix}${currentNumber}`;
+
+      const space = {
+        spaceId: newSpaceId,
+        wingId: originalSpace.wingId,
+        floorId: originalSpace.floorId,
+        buildingId: originalSpace.buildingId,
+        projectId: originalSpace.projectId,
+        name: newSpaceName,
+        code: originalSpace.code ? `${originalSpace.code}-${currentNumber}` : '',
+        type: originalSpace.type,
+        status: originalSpace.status,
+        description: originalSpace.description,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        createdBy: userId || '',
+      };
+
+      await set(newSpaceRef, space);
+      createdSpaces.push(space);
+
+      // Clone activities
+      for (const origAct of originalActivities) {
+        const newActRef = push(activitiesRef);
+        const newActId = newActRef.key;
+        
+        const newAct = {
+          ...origAct,
+          activityId: newActId,
+          spaceId: newSpaceId,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          createdBy: userId || '',
+          progress: 0,
+          automaticProgress: 0,
+          status: 'not_started',
+          actualStartDate: null,
+          actualCompletionDate: null,
+          manualOverrideReason: null,
+          manualOverrideBy: null,
+          manualOverrideAt: null,
+          manualProgress: null,
+          progressSource: 'automatic'
+        };
+        await set(newActRef, newAct);
+      }
+    }
+
+    return createdSpaces;
+  } catch (error) {
+    console.error('Error bulk cloning space:', error);
+    throw error;
+  }
+}
+
 export async function getSpacesByWing(wingId) {
   try {
     const spacesRef = ref(database, SPACES_PATH);
@@ -359,11 +561,7 @@ export async function updateSpace(spaceId, updates) {
 // EFFICIENT CASCADE DELETE FUNCTIONS
 // ============================================================
 
-/**
- * Universal helper to wipe all dependencies below a certain hierarchy node
- */
 async function wipeHierarchyData(fieldName, id, pathsToWipe) {
-  // 1. Wipe standard flat collections
   for (const path of pathsToWipe) {
     const q = query(ref(database, path), orderByChild(fieldName), equalTo(id));
     const snap = await get(q);
@@ -374,14 +572,12 @@ async function wipeHierarchyData(fieldName, id, pathsToWipe) {
     }
   }
 
-  // 2. Wipe Tasks and their connected Submissions
   const qTasks = query(ref(database, 'tasks'), orderByChild(fieldName), equalTo(id));
   const snapTasks = await get(qTasks);
   if (snapTasks.exists()) {
     const tasks = snapTasks.val();
     const taskIds = Object.keys(tasks);
 
-    // Wipe Submissions linked to these tasks
     const subSnap = await get(ref(database, 'taskSubmissions'));
     if (subSnap.exists()) {
       const subs = subSnap.val();
@@ -392,7 +588,6 @@ async function wipeHierarchyData(fieldName, id, pathsToWipe) {
       }
     }
 
-    // Wipe Tasks
     for (const key of taskIds) {
       await remove(ref(database, `tasks/${key}`));
     }

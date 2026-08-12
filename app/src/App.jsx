@@ -31,6 +31,7 @@ import MyTasks from './pages/MyTasks';
 import PendingApprovals from './pages/PendingApprovals';
 import TaskDetail from './pages/TaskDetail';
 
+
 function App() {
   return (
     <ThemeProvider>
@@ -64,7 +65,10 @@ function App() {
               <Route path="projects/:projectId/buildings/:buildingId" element={<BuildingDetail />} />
               <Route path="projects/:projectId/buildings/:buildingId/floors/:floorId" element={<LevelDetail />} />
               <Route path="projects/:projectId/buildings/:buildingId/floors/:floorId/wings/:wingId" element={<WingDetail />} />
-              <Route path="spaces/:spaceId" element={<SpaceDetail />} />
+              
+              {/* 🔥 FIXED ROUTE HERE 🔥 */}
+              <Route path="projects/:projectId/buildings/:buildingId/floors/:floorId/wings/:wingId/spaces/:spaceId" element={<SpaceDetail />} />
+              
               <Route path="tasks/:taskId" element={<TaskDetail />} />
               <Route path="timeline" element={<Timeline />} />
               <Route path="reports" element={<Reports />} />
