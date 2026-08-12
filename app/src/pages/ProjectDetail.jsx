@@ -42,32 +42,54 @@ function ProjectDetail() {
   const canEdit = ['director', 'engineer', 'supervisor'].includes(userRole);
   const canDelete = ['director'].includes(userRole);
 
-  const loadData = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const projectData = await getProject(projectId);
-      if (!projectData) {
-        setError('Project not found');
-        setLoading(false);
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadData = async () => {
+      if (!projectId) {
+        if (isMounted) {
+          setError('Project ID not found');
+          setLoading(false);
+        }
         return;
       }
-      setProject(projectData);
 
-      const buildingsData = await getBuildingsByProject(projectId);
-      setBuildings(buildingsData);
-    } catch (err) {
-      console.error('Error loading project:', err);
-      setError('Failed to load project. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
+      setLoading(true);
+      setError('');
 
-  useEffect(() => {
-    if (projectId) {
-      loadData();
-    }
+      try {
+        const projectData = await getProject(projectId);
+        if (!projectData) {
+          if (isMounted) {
+            setError('Project not found');
+            setLoading(false);
+          }
+          return;
+        }
+
+        if (isMounted) setProject(projectData);
+
+        const buildingsData = await getBuildingsByProject(projectId);
+        if (isMounted) {
+          setBuildings(buildingsData || []);
+        }
+      } catch (err) {
+        console.error('Error loading project:', err);
+        if (isMounted) {
+          setError('Failed to load project. Please try again.');
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadData();
+
+    return () => {
+      isMounted = false;
+    };
   }, [projectId]);
 
   const handleCreateBuilding = async () => {
@@ -81,7 +103,10 @@ function ProjectDetail() {
       await createBuilding(buildingForm, projectId, user?.uid);
       setShowBuildingForm(false);
       setBuildingForm({ name: '', code: '', description: '', status: 'active' });
-      await loadData();
+      
+      // Reload buildings
+      const buildingsData = await getBuildingsByProject(projectId);
+      setBuildings(buildingsData || []);
     } catch (err) {
       setFormError(err.message || 'Failed to create building');
     } finally {
@@ -95,8 +120,10 @@ function ProjectDetail() {
       await hardDeleteProject(projectId);
       navigate('/projects');
     } catch (err) {
+      console.error('Error deleting project:', err);
       setError('Failed to delete project');
       setDeleting(false);
+      setShowDeleteModal(false);
     }
   };
 
@@ -246,7 +273,10 @@ function ProjectDetail() {
                 building={building} 
                 projectId={projectId} 
                 getStatusBadge={getStatusBadge}
-                onDelete={loadData}
+                onDelete={async () => {
+                  const updatedBuildings = await getBuildingsByProject(projectId);
+                  setBuildings(updatedBuildings || []);
+                }}
                 canDelete={canDelete}
               />
             ))}
@@ -347,7 +377,6 @@ function ProjectDetail() {
   );
 }
 
-// Building Card Component with Delete
 function BuildingCard({ building, projectId, getStatusBadge, onDelete, canDelete }) {
   const navigate = useNavigate();
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -399,7 +428,6 @@ function BuildingCard({ building, projectId, getStatusBadge, onDelete, canDelete
         </div>
       </Card>
 
-      {/* Delete Building Modal */}
       {showDeleteModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowDeleteModal(false)}>
           <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>

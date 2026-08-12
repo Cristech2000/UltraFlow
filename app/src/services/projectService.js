@@ -1,15 +1,8 @@
 import { database } from '../lib/firebase';
-import { ref, set, get, update, push, remove } from 'firebase/database';
-
-/**
- * Project Service - Handles all project-related Realtime Database operations
- */
+import { ref, set, get, update, push, remove, query, orderByChild, equalTo } from 'firebase/database';
 
 const PROJECTS_PATH = 'projects';
 
-/**
- * Create a new project
- */
 export async function createProject(projectData, organizationId, userId) {
   try {
     const projectsRef = ref(database, PROJECTS_PATH);
@@ -40,9 +33,6 @@ export async function createProject(projectData, organizationId, userId) {
   }
 }
 
-/**
- * Get a project by ID
- */
 export async function getProject(projectId) {
   try {
     const projectRef = ref(database, `${PROJECTS_PATH}/${projectId}`);
@@ -59,9 +49,6 @@ export async function getProject(projectId) {
   }
 }
 
-/**
- * Get all projects for an organization
- */
 export async function getProjectsByOrganization(organizationId) {
   try {
     const projectsRef = ref(database, PROJECTS_PATH);
@@ -81,9 +68,6 @@ export async function getProjectsByOrganization(organizationId) {
   }
 }
 
-/**
- * Get all projects (Admin only)
- */
 export async function getAllProjects() {
   try {
     const projectsRef = ref(database, PROJECTS_PATH);
@@ -102,9 +86,6 @@ export async function getAllProjects() {
   }
 }
 
-/**
- * Update a project
- */
 export async function updateProject(projectId, updates) {
   try {
     const projectRef = ref(database, `${PROJECTS_PATH}/${projectId}`);
@@ -119,9 +100,6 @@ export async function updateProject(projectId, updates) {
   }
 }
 
-/**
- * Archive a project (Soft delete - keeps data but hides from active view)
- */
 export async function archiveProject(projectId) {
   try {
     const projectRef = ref(database, `${PROJECTS_PATH}/${projectId}`);
@@ -136,9 +114,6 @@ export async function archiveProject(projectId) {
   }
 }
 
-/**
- * Restore an archived project
- */
 export async function restoreProject(projectId) {
   try {
     const projectRef = ref(database, `${PROJECTS_PATH}/${projectId}`);
@@ -153,14 +128,53 @@ export async function restoreProject(projectId) {
   }
 }
 
-/**
- * Hard delete a project (Permanently removes from database)
- * Use with caution - this cannot be undone
- */
 export async function hardDeleteProject(projectId) {
   try {
-    const projectRef = ref(database, `${PROJECTS_PATH}/${projectId}`);
-    await remove(projectRef);
+    console.log(`🗑️ Starting deep hard delete for project: ${projectId}`);
+
+    const collectionsToWipe = ['buildings', 'floors', 'wings', 'spaces', 'activities'];
+    
+    // 1. Wipe all hierarchical data connected to the project
+    for (const collection of collectionsToWipe) {
+      const q = query(ref(database, collection), orderByChild('projectId'), equalTo(projectId));
+      const snapshot = await get(q);
+      if (snapshot.exists()) {
+        const items = snapshot.val();
+        for (const key of Object.keys(items)) {
+          await remove(ref(database, `${collection}/${key}`));
+        }
+      }
+    }
+
+    // 2. Wipe Tasks and Submissions
+    const qTasks = query(ref(database, 'tasks'), orderByChild('projectId'), equalTo(projectId));
+    const snapTasks = await get(qTasks);
+    if (snapTasks.exists()) {
+      const tasks = snapTasks.val();
+      const taskIds = Object.keys(tasks);
+
+      const subSnap = await get(ref(database, 'taskSubmissions'));
+      if (subSnap.exists()) {
+        const subs = subSnap.val();
+        for (const [key, sub] of Object.entries(subs)) {
+          if (taskIds.includes(sub.taskId)) {
+            await remove(ref(database, `taskSubmissions/${key}`));
+          }
+        }
+      }
+
+      for (const key of taskIds) {
+        await remove(ref(database, `tasks/${key}`));
+      }
+    }
+
+    // 3. Wipe Project Members
+    await remove(ref(database, `projectMembers/${projectId}`));
+
+    // 4. Wipe the Project itself
+    await remove(ref(database, `${PROJECTS_PATH}/${projectId}`));
+    
+    console.log(`✅ Successfully wiped project and all child data for: ${projectId}`);
     return true;
   } catch (error) {
     console.error('Error hard deleting project:', error);
@@ -168,9 +182,6 @@ export async function hardDeleteProject(projectId) {
   }
 }
 
-/**
- * Delete a project (Alias for hardDeleteProject - maintained for backward compatibility)
- */
 export async function deleteProject(projectId) {
   return hardDeleteProject(projectId);
 }

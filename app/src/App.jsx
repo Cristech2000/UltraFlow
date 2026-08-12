@@ -29,6 +29,7 @@ import Settings from './pages/Settings';
 import TaskAllocation from './pages/TaskAllocation';
 import MyTasks from './pages/MyTasks';
 import PendingApprovals from './pages/PendingApprovals';
+import TaskDetail from './pages/TaskDetail';
 
 function App() {
   return (
@@ -64,6 +65,7 @@ function App() {
               <Route path="projects/:projectId/buildings/:buildingId/floors/:floorId" element={<LevelDetail />} />
               <Route path="projects/:projectId/buildings/:buildingId/floors/:floorId/wings/:wingId" element={<WingDetail />} />
               <Route path="spaces/:spaceId" element={<SpaceDetail />} />
+              <Route path="tasks/:taskId" element={<TaskDetail />} />
               <Route path="timeline" element={<Timeline />} />
               <Route path="reports" element={<Reports />} />
               <Route path="assessments" element={<Assessments />} />

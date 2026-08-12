@@ -35,7 +35,7 @@ export async function createActivity(activityData, userId) {
       order: activityData.order || 0,
       status: activityData.status || 'not_started',
       progress: activityData.progress || 0,
-      progressSource: 'automatic',  // ← CHANGED FROM 'manual' TO 'automatic'
+      progressSource: 'automatic',
       automaticProgress: 0,
       manualProgress: null,
       manualOverrideReason: null,
@@ -205,9 +205,9 @@ export async function updateActivity(activityId, updates, userId) {
 }
 
 /**
- * Update activity progress with manual override support
+ * Update activity progress
  */
-export async function updateActivityProgress(activityId, progress, userId, reason = null) {
+export async function updateActivityProgress(activityId, progress, userId, reason = null, source = 'manual') {
   try {
     if (progress < 0 || progress > 100) {
       throw new Error('Progress must be between 0 and 100');
@@ -220,12 +220,21 @@ export async function updateActivityProgress(activityId, progress, userId, reaso
       progress: progress,
       updatedAt: new Date().toISOString(),
       updatedBy: userId || '',
-      progressSource: 'manual',
-      manualProgress: progress,
-      manualOverrideReason: reason || null,
-      manualOverrideBy: userId || null,
-      manualOverrideAt: new Date().toISOString(),
+      progressSource: source,
     };
+
+    if (source === 'manual') {
+      updates.manualProgress = progress;
+      updates.manualOverrideReason = reason || null;
+      updates.manualOverrideBy = userId || null;
+      updates.manualOverrideAt = new Date().toISOString();
+    } else {
+      updates.automaticProgress = progress;
+      updates.manualProgress = null;
+      updates.manualOverrideReason = null;
+      updates.manualOverrideBy = null;
+      updates.manualOverrideAt = null;
+    }
 
     if (progress === 100) {
       updates.status = 'completed';
@@ -249,7 +258,7 @@ export async function updateActivityProgress(activityId, progress, userId, reaso
 }
 
 /**
- * Restore automatic progress (remove manual override)
+ * Restore automatic progress
  */
 export async function restoreAutomaticProgress(activityId, userId) {
   try {

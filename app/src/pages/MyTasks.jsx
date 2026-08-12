@@ -1,34 +1,69 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { getTasksForUser, submitTaskProgress, getTaskLocation } from '../services/taskService';
+import { getTasksForUser, getTaskLocation } from '../services/taskService';
 import { getActivity } from '../services/activityService';
+import { getUserProfile } from '../services/userService';
+import { getSpace } from '../services/spaceService';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import Badge from '../components/common/Badge';
 import ProgressBar from '../components/common/ProgressBar';
-import { CheckCircle, Clock, XCircle, Send, Users, Building2, Home, Layers } from 'lucide-react';
+import { CheckCircle, Clock, XCircle, Users, Building2, Home, Layers, Eye, ChevronDown, ChevronRight } from 'lucide-react';
 
 function MyTasks() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [selectedTask, setSelectedTask] = useState(null);
-  const [progressInput, setProgressInput] = useState(0);
-  const [notes, setNotes] = useState('');
+  const [expandedTasks, setExpandedTasks] = useState({});
+  const [userNames, setUserNames] = useState({});
+
+  const getUserName = async (userId) => {
+    if (!userId) return 'Not assigned';
+    if (userNames[userId]) return userNames[userId];
+    try {
+      const profile = await getUserProfile(userId);
+      const name = profile?.fullName || userId;
+      setUserNames(prev => ({ ...prev, [userId]: name }));
+      return name;
+    } catch {
+      return userId;
+    }
+  };
 
   const loadTasks = async () => {
     setLoading(true);
     try {
       const tasksData = await getTasksForUser(user?.uid);
+      
       const enrichedTasks = await Promise.all(
         tasksData.map(async (task) => {
           const activity = await getActivity(task.activityId);
           const location = await getTaskLocation(task);
-          return { ...task, activity, location };
+          const responsibleName = await getUserName(task.responsiblePerson);
+          
+          const scopeIds = task.scopeIds || [];
+          const scopeNames = task.scopeNames || [];
+          
+          const scopeDetails = scopeIds.map((sid, idx) => {
+            const progress = task.spaceProgress?.[sid] || {};
+            return {
+              id: sid,
+              name: scopeNames[idx] || sid,
+              approved: progress.approved || 0,
+              submitted: progress.submitted || 0,
+              rejected: progress.rejected || false,
+              rejectionReason: progress.rejectionReason || '',
+              notes: progress.notes || '',
+            };
+          });
+          
+          return { ...task, activity, location, responsibleName, scopeDetails };
         })
       );
+      
       setTasks(enrichedTasks);
     } catch (err) {
       console.error('Error loading tasks:', err);
@@ -44,25 +79,11 @@ function MyTasks() {
     }
   }, [user]);
 
-  const handleSubmitProgress = async (taskId) => {
-    if (progressInput < 0 || progressInput > 100) {
-      setError('Progress must be between 0 and 100');
-      return;
-    }
-
-    setSubmitting(true);
-    setError('');
-    try {
-      await submitTaskProgress(taskId, progressInput, user?.uid, notes);
-      setSelectedTask(null);
-      setProgressInput(0);
-      setNotes('');
-      await loadTasks();
-    } catch (err) {
-      setError(err.message || 'Failed to submit progress');
-    } finally {
-      setSubmitting(false);
-    }
+  const toggleTaskExpanded = (taskId) => {
+    setExpandedTasks(prev => ({
+      ...prev,
+      [taskId]: !prev[taskId]
+    }));
   };
 
   const getTaskStatusBadge = (status) => {
@@ -72,17 +93,6 @@ function MyTasks() {
       'submitted': { label: 'Pending Approval', color: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' },
       'approved': { label: 'Approved', color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' },
       'rejected': { label: 'Rejected', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' },
-    };
-    return map[status] || map['pending'];
-  };
-
-  const getTaskStatusColor = (status) => {
-    const map = {
-      'pending': 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
-      'in_progress': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-      'submitted': 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-      'approved': 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-      'rejected': 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
     };
     return map[status] || map['pending'];
   };
@@ -122,152 +132,134 @@ function MyTasks() {
         </Card>
       ) : (
         <div className="space-y-4">
-          {tasks.map((task) => (
-            <Card key={task.taskId} className="overflow-hidden">
-              <div className="flex flex-col gap-3">
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                  <div className="flex-1">
+          {tasks.map((task) => {
+            const isExpanded = expandedTasks[task.taskId];
+            const scopeDetails = task.scopeDetails || [];
+            const scopeTypeLabel = task.scopeType === 'building' ? 'levels' : task.scopeType === 'level' ? 'wings' : 'spaces';
+            
+            return (
+              <Card key={task.taskId} className="overflow-hidden">
+                <div 
+                  className="flex flex-col gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors p-4"
+                  onClick={() => toggleTaskExpanded(task.taskId)}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <h3 className="font-semibold text-gray-900 dark:text-white">
-                        {task.activity?.name || 'Unknown Activity'}
+                        {task.activity?.name || task.activityName || 'Unknown Activity'}
                       </h3>
-                      <Badge className={getTaskStatusColor(task.status)}>
+                      <Badge className={getTaskStatusBadge(task.status).color}>
                         {getTaskStatusBadge(task.status).label}
                       </Badge>
                     </div>
-                    <div className="mt-1 flex items-center gap-3 text-sm text-gray-500 dark:text-gray-400">
-                      <span>Team: {task.teamName}</span>
-                      <span>•</span>
-                      <span>Scope: {task.scopeType}</span>
-                      <span>•</span>
-                      <span>{task.teamMembers?.length || 0} members</span>
-                    </div>
-                    
-                    {/* LOCATION DISPLAY */}
-                    {task.location && (
-                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-400 dark:text-gray-500">
-                        {task.location.projectName && (
-                          <span className="flex items-center gap-1">
-                            <Building2 size={12} />
-                            {task.location.projectName}
-                          </span>
-                        )}
-                        {task.location.buildingName && <span>• {task.location.buildingName}</span>}
-                        {task.location.floorName && <span>• {task.location.floorName}</span>}
-                        {task.location.wingName && <span>• {task.location.wingName}</span>}
-                        <span>• {task.location.spaceCount || 0} spaces</span>
-                      </div>
-                    )}
-                    
-                    <div className="mt-2 flex items-center gap-4">
-                      <div className="w-32">
-                        <ProgressBar value={task.approvedProgress || 0} showLabel={false} />
-                      </div>
-                      <span className="text-sm font-medium">
-                        {task.approvedProgress || 0}% Approved
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-500 dark:text-gray-400">
+                        {scopeDetails.filter(s => s.submitted > 0).length} / {scopeDetails.length} {scopeTypeLabel}
                       </span>
-                    </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-gray-400 dark:text-gray-500">
-                      <span>📅 Assigned: {new Date(task.createdAt).toLocaleString()}</span>
-                      <span>•</span>
-                      <span>🔄 Updated: {new Date(task.updatedAt).toLocaleString()}</span>
+                      {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
                     </div>
                   </div>
-
-                  {task.status !== 'approved' && task.status !== 'submitted' && (
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      onClick={() => {
-                        setSelectedTask(task.taskId);
-                        setProgressInput(task.approvedProgress || 0);
-                      }}
-                    >
-                      Update Progress
-                    </Button>
-                  )}
-
-                  {task.status === 'submitted' && (
-                    <div className="flex items-center gap-2 text-yellow-600 dark:text-yellow-400">
-                      <Clock size={16} />
-                      <span className="text-sm font-medium">Pending Approval</span>
+                  
+                  <div className="text-sm text-gray-500 dark:text-gray-400">
+                    <span>Responsible: {task.responsibleName || 'Not assigned'}</span>
+                    <span className="mx-2">•</span>
+                    <span>Scope: {task.scopeType}</span>
+                  </div>
+                  
+                  {task.location && (
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400 dark:text-gray-500">
+                      {task.location.projectName && (
+                        <span className="flex items-center gap-1">
+                          <Building2 size={12} />
+                          {task.location.projectName}
+                        </span>
+                      )}
+                      {task.location.buildingName && <span>• {task.location.buildingName}</span>}
+                      {task.location.floorName && <span>• {task.location.floorName}</span>}
+                      {task.location.wingName && <span>• {task.location.wingName}</span>}
                     </div>
                   )}
-
-                  {task.status === 'approved' && (
-                    <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
-                      <CheckCircle size={16} />
-                      <span className="text-sm font-medium">Approved</span>
+                  
+                  <div className="flex items-center gap-4">
+                    <div className="flex-1 max-w-[200px]">
+                      <ProgressBar value={task.approvedProgress || 0} showLabel={false} />
                     </div>
-                  )}
-
-                  {task.status === 'rejected' && (
-                    <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
-                      <XCircle size={16} />
-                      <span className="text-sm font-medium">Rejected</span>
-                    </div>
-                  )}
+                    <span className="text-sm font-medium">
+                      {task.approvedProgress || 0}% Approved
+                    </span>
+                    {task.submittedProgress > 0 && task.submittedProgress !== task.approvedProgress && (
+                      <span className="text-sm text-yellow-500">
+                        ({task.submittedProgress}% submitted)
+                      </span>
+                    )}
+                  </div>
+                  
+                  <div className="text-xs text-gray-400 dark:text-gray-500">
+                    📅 Assigned: {new Date(task.createdAt).toLocaleString()}
+                  </div>
                 </div>
 
-                {/* Submit Progress Modal */}
-                {selectedTask === task.taskId && (
-                  <div className="mt-2 pt-3 border-t border-gray-200 dark:border-gray-700">
-                    <div className="flex flex-col sm:flex-row gap-4">
-                      <div className="flex-1">
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          Progress (%)
-                        </label>
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="number"
-                            min="0"
-                            max="100"
-                            value={progressInput}
-                            onChange={(e) => setProgressInput(Math.min(100, Math.max(0, parseInt(e.target.value) || 0)))}
-                            className="w-20 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-center focus:outline-none focus:ring-2 focus:ring-primary-500"
-                          />
-                          <span className="text-sm text-gray-500">%</span>
-                        </div>
-                      </div>
-                      <div className="flex-1">
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          Notes (optional)
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="Add notes about progress..."
-                          value={notes}
-                          onChange={(e) => setNotes(e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                        />
-                      </div>
+                {isExpanded && (
+                  <div className="p-4 pt-0 border-t border-gray-200 dark:border-gray-700">
+                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                      {scopeDetails.length === 0 ? (
+                        <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">No items in this task</p>
+                      ) : (
+                        scopeDetails.map((item) => {
+                          return (
+                            <div
+                              key={item.id}
+                              className={`flex items-center justify-between p-2 rounded-lg border ${
+                                item.rejected ? 'border-red-200 dark:border-red-700 bg-red-50 dark:bg-red-900/10' :
+                                item.submitted > 0 ? 'border-yellow-200 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/10' :
+                                item.approved > 0 ? 'border-green-200 dark:border-green-700 bg-green-50 dark:bg-green-900/10' :
+                                'border-gray-200 dark:border-gray-700'
+                              }`}
+                            >
+                              <div>
+                                <p className="text-sm font-medium text-gray-900 dark:text-white">{item.name}</p>
+                                {item.rejected && (
+                                  <p className="text-xs text-red-600 dark:text-red-400">⚠️ Rejected: {item.rejectionReason || 'No reason'}</p>
+                                )}
+                                {item.notes && (
+                                  <p className="text-xs text-gray-400 dark:text-gray-500">{item.notes}</p>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-3">
+                                {item.approved > 0 && (
+                                  <span className="text-xs text-green-600 dark:text-green-400">✅ {item.approved}%</span>
+                                )}
+                                {item.submitted > 0 && item.approved !== item.submitted && (
+                                  <span className="text-xs text-yellow-600 dark:text-yellow-400">📤 {item.submitted}%</span>
+                                )}
+                                {!item.approved && !item.submitted && (
+                                  <span className="text-xs text-gray-400 dark:text-gray-500">⏳ 0%</span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
                     </div>
-                    <div className="flex gap-3 mt-4">
+                    
+                    <div className="mt-4 pt-3 border-t border-gray-200 dark:border-gray-700">
                       <Button
                         size="sm"
                         variant="primary"
-                        onClick={() => handleSubmitProgress(task.taskId)}
-                        loading={submitting}
-                      >
-                        <Send size={14} className="mr-1" />
-                        Submit for Approval
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          setSelectedTask(null);
-                          setNotes('');
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/tasks/${task.taskId}`);
                         }}
+                        icon={<Eye size={14} />}
                       >
-                        Cancel
+                        View Full Details
                       </Button>
                     </div>
                   </div>
                 )}
-              </div>
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>
