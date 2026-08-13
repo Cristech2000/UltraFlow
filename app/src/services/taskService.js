@@ -497,11 +497,14 @@ export async function approveTaskAll(taskId, userId, notes = '') {
     
     const overallProgress = count > 0 ? Math.round(totalProgress / count) : 0;
     
+    // 🔥 Iterative Task Workflow: If progress is less than 100%, send the task back to 'in_progress' so the electrician can finish it later!
+    const newTaskStatus = overallProgress >= 100 ? 'completed' : 'in_progress';
+
     const taskRef = ref(database, `${TASKS_PATH}/${taskId}`);
     await update(taskRef, {
       spaceProgress: spaceProgress,
       approvedProgress: overallProgress,
-      status: 'approved',
+      status: newTaskStatus,
       updatedAt: new Date().toISOString(),
       updatedBy: userId || '',
     });
@@ -552,8 +555,10 @@ export async function approveTaskSpaces(taskId, targetIds, userId, notes = '') {
     
     let status = task.status;
     if (allApproved) {
-      status = 'approved';
+      // 🔥 Iterative Task Workflow: Complete if 100%, otherwise push back to 'in_progress'
+      status = overallProgress >= 100 ? 'completed' : 'in_progress';
     } else if (task.status === 'submitted') {
+      // If partially approved across spaces, it stays active for the worker
       status = 'in_progress';
     }
     
