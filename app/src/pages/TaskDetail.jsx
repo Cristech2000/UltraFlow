@@ -2,35 +2,24 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-  ArrowLeft,
-  Building2,
-  Home,
-  Layers,
-  ChevronRight,
-  CheckCircle,
-  XCircle,
-  Clock,
-  Send,
-  Edit2,
-  Save,
-  AlertTriangle,
+  ArrowLeft, Building2, Home, Layers, ChevronRight, CheckCircle, 
+  XCircle, Clock, Send, Edit2, Save, AlertTriangle, AlertCircle, X
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { 
-  getTask, 
-  updateTaskSpaceProgress, 
-  updateTaskOverallProgress,
-  bulkUpdateTaskSpaces, 
-  submitTaskForApproval, 
-  getTaskLocation 
+  getTask, updateTaskSpaceProgress, updateTaskOverallProgress,
+  bulkUpdateTaskSpaces, submitTaskForApproval, getTaskLocation 
 } from '../services/taskService';
 import { getActivity } from '../services/activityService';
 import { getSpace, getFloor, getWing } from '../services/spaceService';
 import { getUserProfile } from '../services/userService';
+// 🔥 NEW IMPORT HERE
+import { reportIssueFromTask } from '../services/issueService';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import Badge from '../components/common/Badge';
 import ProgressBar from '../components/common/ProgressBar';
+import Input from '../components/common/Input';
 
 function TaskDetail() {
   const { taskId } = useParams();
@@ -53,6 +42,11 @@ function TaskDetail() {
   
   const [overallProgressInput, setOverallProgressInput] = useState('');
   const [overallNotesInput, setOverallNotesInput] = useState('');
+
+  // 🔥 NEW ISSUE MODAL STATE
+  const [showIssueModal, setShowIssueModal] = useState(false);
+  const [issueForm, setIssueForm] = useState({ title: '', details: '' });
+  const [submittingIssue, setSubmittingIssue] = useState(false);
 
   const isResponsible = task?.responsiblePerson === user?.uid;
   const canApprove = ['director', 'supervisor', 'foreman'].includes(userRole);
@@ -98,7 +92,6 @@ function TaskDetail() {
         const sid = scopeIds[i];
         let sName = scopeNames[i];
 
-        // Fallback: Fetch readable name dynamically if scopeNames wasn't fully stamped
         if (!sName || sName === sid) {
           if (taskData.scopeType === 'building') {
             const floor = await getFloor(sid);
@@ -120,11 +113,7 @@ function TaskDetail() {
           rejected: sp.rejected || false,
           rejectionReason: sp.rejectionReason || '',
         };
-        details.push({
-          id: sid,
-          name: sName,
-          ...progress
-        });
+        details.push({ id: sid, name: sName, ...progress });
         prog[sid] = progress;
       }
       
@@ -140,22 +129,38 @@ function TaskDetail() {
   };
 
   useEffect(() => {
-    if (taskId) {
-      loadData();
-    }
+    if (taskId) loadData();
   }, [taskId]);
 
-  const handleUpdateOverallProgress = async () => {
-    if (task.status === 'submitted' || task.status === 'approved') {
-      setError('Cannot update progress on a submitted or approved task');
-      return;
+  // 🔥 NEW SUBMIT ISSUE LOGIC
+  const handleReportIssue = async () => {
+    if (!issueForm.title || !issueForm.details) return alert("Title and details are required.");
+    setSubmittingIssue(true);
+    try {
+      const taskLocation = {
+        projectId: task.projectId,
+        buildingId: task.buildingId,
+        floorId: task.floorId,
+        wingId: task.wingId,
+        description: `${location?.buildingName || ''} > ${location?.floorName || ''} > ${location?.wingName || ''}`
+      };
+      
+      await reportIssueFromTask(taskId, taskLocation, issueForm, user.uid);
+      setSuccess('✅ Issue logged and sent for Supervisor review.');
+      setShowIssueModal(false);
+      setIssueForm({ title: '', details: '' });
+      setTimeout(() => setSuccess(''), 4000);
+    } catch (err) {
+      setError('Failed to report issue.');
+    } finally {
+      setSubmittingIssue(false);
     }
+  };
 
+  const handleUpdateOverallProgress = async () => {
+    if (task.status === 'submitted' || task.status === 'approved') return setError('Cannot update progress on a submitted or approved task');
     const progress = parseInt(overallProgressInput);
-    if (isNaN(progress) || progress < 0 || progress > 100) {
-      setError('Please enter a valid progress between 0 and 100');
-      return;
-    }
+    if (isNaN(progress) || progress < 0 || progress > 100) return setError('Please enter a valid progress between 0 and 100');
 
     setUpdating(true);
     try {
@@ -171,11 +176,7 @@ function TaskDetail() {
   };
 
   const handleUpdateItemProgress = async (itemId, progress, notes = '') => {
-    if (task.status === 'submitted' || task.status === 'approved') {
-      setError('Cannot update progress on a submitted or approved task');
-      return;
-    }
-    
+    if (task.status === 'submitted' || task.status === 'approved') return setError('Cannot update progress on a submitted or approved task');
     setUpdating(true);
     try {
       await updateTaskSpaceProgress(taskId, itemId, progress, user?.uid, notes);
@@ -191,17 +192,9 @@ function TaskDetail() {
   };
 
   const handleBulkUpdate = async () => {
-    if (task.status === 'submitted' || task.status === 'approved') {
-      setError('Cannot update progress on a submitted or approved task');
-      return;
-    }
-    
+    if (task.status === 'submitted' || task.status === 'approved') return setError('Cannot update progress on a submitted or approved task');
     const progress = parseInt(bulkProgress);
-    if (isNaN(progress) || progress < 0 || progress > 100) {
-      setError('Please enter a valid progress between 0 and 100');
-      return;
-    }
-    
+    if (isNaN(progress) || progress < 0 || progress > 100) return setError('Please enter a valid progress between 0 and 100');
     setUpdating(true);
     try {
       await bulkUpdateTaskSpaces(taskId, progress, user?.uid, `Bulk update: ${progress}%`);
@@ -220,16 +213,9 @@ function TaskDetail() {
     if (!task.isOverallProgress) {
       let hasProgress = false;
       for (const sid of Object.keys(itemProgress)) {
-        if (itemProgress[sid].submitted > 0) {
-          hasProgress = true;
-          break;
-        }
+        if (itemProgress[sid].submitted > 0) { hasProgress = true; break; }
       }
-      
-      if (!hasProgress) {
-        setError('Cannot submit task with no progress. Please update at least one item.');
-        return;
-      }
+      if (!hasProgress) return setError('Cannot submit task with no progress. Please update at least one item.');
     }
     
     setSubmitting(true);
@@ -278,11 +264,7 @@ function TaskDetail() {
         <div className="text-center">
           <AlertTriangle size={48} className="text-red-500 mx-auto" />
           <p className="mt-4 text-gray-600 dark:text-gray-400">{error || 'Task not found'}</p>
-          <Button
-            variant="primary"
-            className="mt-4"
-            onClick={() => navigate('/my-tasks')}
-          >
+          <Button variant="primary" className="mt-4" onClick={() => navigate('/my-tasks')}>
             Back to My Tasks
           </Button>
         </div>
@@ -310,7 +292,6 @@ function TaskDetail() {
 
   const overallApproved = task.isOverallProgress ? totalApproved : (count > 0 ? Math.round(totalApproved / count) : 0);
   const overallSubmitted = task.isOverallProgress ? totalSubmitted : (count > 0 ? Math.round(totalSubmitted / count) : 0);
-
   const scopeTypeLabel = task.scopeType === 'building' ? 'Levels' : task.scopeType === 'level' ? 'Wings' : 'Spaces';
 
   return (
@@ -318,9 +299,7 @@ function TaskDetail() {
       <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
         <Link to="/my-tasks" className="hover:text-primary-500 transition-colors">My Tasks</Link>
         <ChevronRight size={14} />
-        <span className="text-gray-900 dark:text-white font-medium">
-          {activity?.name || 'Task'}
-        </span>
+        <span className="text-gray-900 dark:text-white font-medium">{activity?.name || 'Task'}</span>
       </div>
 
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
@@ -351,20 +330,15 @@ function TaskDetail() {
           )}
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button
-            variant="ghost"
-            onClick={() => navigate('/my-tasks')}
-            icon={<ArrowLeft size={16} />}
-          >
-            Back
+          <Button variant="ghost" onClick={() => navigate('/my-tasks')} icon={<ArrowLeft size={16} />}>Back</Button>
+          
+          {/* 🔥 NEW REPORT ISSUE BUTTON */}
+          <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" icon={<AlertCircle size={16} />} onClick={() => setShowIssueModal(true)}>
+            Report Issue
           </Button>
+
           {isResponsible && task.status !== 'submitted' && task.status !== 'approved' && (
-            <Button
-              variant="primary"
-              icon={<Send size={16} />}
-              onClick={handleSubmitForApproval}
-              loading={submitting}
-            >
+            <Button variant="primary" icon={<Send size={16} />} onClick={handleSubmitForApproval} loading={submitting}>
               Submit for Approval
             </Button>
           )}
@@ -411,21 +385,11 @@ function TaskDetail() {
               </label>
               <div className="flex gap-3">
                 <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={bulkProgress}
-                  onChange={(e) => setBulkProgress(e.target.value)}
+                  type="number" min="0" max="100" value={bulkProgress} onChange={(e) => setBulkProgress(e.target.value)}
                   placeholder="Enter progress (0-100)"
                   className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
                 />
-                <Button
-                  variant="primary"
-                  onClick={handleBulkUpdate}
-                  loading={updating}
-                >
-                  Update All
-                </Button>
+                <Button variant="primary" onClick={handleBulkUpdate} loading={updating}>Update All</Button>
               </div>
             </div>
           </div>
@@ -449,9 +413,7 @@ function TaskDetail() {
               const isRejected = item.rejected;
               
               return (
-                <div
-                  key={item.id}
-                  className={`p-3 rounded-lg border ${
+                <div key={item.id} className={`p-3 rounded-lg border ${
                     isRejected ? 'border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/10' :
                     item.submitted > 0 ? 'border-yellow-200 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/10' :
                     item.approved > 0 ? 'border-green-200 dark:border-green-700 bg-green-50 dark:bg-green-900/10' :
@@ -460,40 +422,23 @@ function TaskDetail() {
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-gray-900 dark:text-white">
-                        {item.name}
-                      </p>
+                      <p className="font-medium text-gray-900 dark:text-white">{item.name}</p>
                       {isRejected && (
-                        <p className="text-xs text-red-600 dark:text-red-400 mt-1">
-                          ⚠️ Rejected: {item.rejectionReason || 'No reason provided'}
-                        </p>
+                        <p className="text-xs text-red-600 dark:text-red-400 mt-1">⚠️ Rejected: {item.rejectionReason || 'No reason provided'}</p>
                       )}
                     </div>
                     <div className="flex items-center gap-3">
-                      {item.approved > 0 && (
-                        <span className="text-xs text-green-600 dark:text-green-400">
-                          ✅ {item.approved}%
-                        </span>
-                      )}
-                      {item.submitted > 0 && item.approved !== item.submitted && (
-                        <span className="text-xs text-yellow-600 dark:text-yellow-400">
-                          📤 {item.submitted}%
-                        </span>
-                      )}
+                      {item.approved > 0 && <span className="text-xs text-green-600 dark:text-green-400">✅ {item.approved}%</span>}
+                      {item.submitted > 0 && item.approved !== item.submitted && <span className="text-xs text-yellow-600 dark:text-yellow-400">📤 {item.submitted}%</span>}
                       {!isEditing ? (
                         <div className="flex items-center gap-2">
                           <div className="w-20">
                             <ProgressBar value={item.approved || item.submitted || 0} showLabel={false} />
                           </div>
-                          <span className="text-sm font-medium min-w-[40px]">
-                            {item.approved || item.submitted || 0}%
-                          </span>
+                          <span className="text-sm font-medium min-w-[40px]">{item.approved || item.submitted || 0}%</span>
                           {isResponsible && task.status !== 'submitted' && task.status !== 'approved' && !isRejected && (
                             <button
-                              onClick={() => {
-                                setEditingItem(item.id);
-                                setItemNotes({ [item.id]: item.notes || '' });
-                              }}
+                              onClick={() => { setEditingItem(item.id); setItemNotes({ [item.id]: item.notes || '' }); }}
                               className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                             >
                               <Edit2 size={14} className="text-gray-400 hover:text-primary-500" />
@@ -503,54 +448,54 @@ function TaskDetail() {
                       ) : (
                         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
                           <input
-                            type="number"
-                            min="0"
-                            max="100"
-                            value={itemProgress[item.id]?.submitted || 0}
+                            type="number" min="0" max="100" value={itemProgress[item.id]?.submitted || 0}
                             onChange={(e) => {
                               const val = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
-                              setItemProgress(prev => ({
-                                ...prev,
-                                [item.id]: { ...prev[item.id], submitted: val }
-                              }));
+                              setItemProgress(prev => ({...prev, [item.id]: { ...prev[item.id], submitted: val }}));
                             }}
-                            className="w-16 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-center text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                            className="w-16 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-center text-sm"
                           />
                           <input
-                            type="text"
-                            placeholder="Notes"
-                            value={itemNotes[item.id] || ''}
+                            type="text" placeholder="Notes" value={itemNotes[item.id] || ''}
                             onChange={(e) => setItemNotes(prev => ({ ...prev, [item.id]: e.target.value }))}
-                            className="flex-1 min-w-[150px] px-2 py-1 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                            className="flex-1 min-w-[150px] px-2 py-1 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm"
                           />
-                          <Button
-                            size="sm"
-                            variant="primary"
-                            onClick={() => handleUpdateItemProgress(item.id, itemProgress[item.id]?.submitted || 0, itemNotes[item.id] || '')}
-                            loading={updating}
-                          >
+                          <Button size="sm" variant="primary" onClick={() => handleUpdateItemProgress(item.id, itemProgress[item.id]?.submitted || 0, itemNotes[item.id] || '')} loading={updating}>
                             <Save size={14} />
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setEditingItem(null)}
-                          >
-                            Cancel
-                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setEditingItem(null)}>Cancel</Button>
                         </div>
                       )}
                     </div>
                   </div>
-                  {item.notes && !isEditing && (
-                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{item.notes}</p>
-                  )}
+                  {item.notes && !isEditing && <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{item.notes}</p>}
                 </div>
               );
             })}
           </div>
         )}
       </Card>
+
+      {/* 🔥 NEW ISSUE MODAL */}
+      {showIssueModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-xl p-6 max-w-md w-full">
+            <div className="flex justify-between mb-4">
+              <h2 className="text-xl font-bold flex items-center gap-2"><AlertCircle className="text-red-500"/> Report Task Issue</h2>
+              <button onClick={() => setShowIssueModal(false)}><X size={20}/></button>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">This will alert your supervisor and halt task approval until resolved.</p>
+            <div className="space-y-4">
+              <Input label="Issue Title" value={issueForm.title} onChange={e => setIssueForm({...issueForm, title: e.target.value})} />
+              <div>
+                <label className="block text-sm font-medium mb-1">Details & Roadblocks</label>
+                <textarea rows="4" value={issueForm.details} onChange={e => setIssueForm({...issueForm, details: e.target.value})} className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+              </div>
+              <Button variant="danger" className="w-full" onClick={handleReportIssue} loading={submittingIssue}>Submit Issue</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

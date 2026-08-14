@@ -158,7 +158,6 @@ function TaskAllocation() {
             activityId: null // gets all
           });
 
-          // Grab building-wide, level-wide, wing-wide, and space-level activities inside this building
           const floors = await getFloorsByBuilding(selectedLocation.buildingId);
           const floorIds = floors.map(f => f.floorId);
           
@@ -410,7 +409,7 @@ function TaskAllocation() {
         floorId: selectedLocation.floorId || null,
         wingId: selectedLocation.wingId || null,
         scopeType: assignmentLevel,
-        selectedSpaceIds: taskForm.selectedSpaceIds || [],
+        selectedSpaceIds: assignmentLevel === 'space' ? [selectedLocation.spaceId] : taskForm.selectedSpaceIds || [],
         responsiblePerson: taskForm.responsiblePerson,
         teamName: taskForm.teamName || '',
         teamMembers: taskForm.teamMembers || [],
@@ -448,26 +447,6 @@ function TaskAllocation() {
       'rejected': { label: 'Rejected', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' },
     };
     return map[status]?.label || status;
-  };
-
-  const getTaskStatusColor = (status) => {
-    const map = {
-      'pending': 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
-      'in_progress': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-      'submitted': 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-      'approved': 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-      'rejected': 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-    };
-    return map[status] || map['pending'];
-  };
-
-  const getLocationPath = () => {
-    const parts = [];
-    if (locationNames.buildingName) parts.push(locationNames.buildingName);
-    if (locationNames.floorName) parts.push(locationNames.floorName);
-    if (locationNames.wingName) parts.push(locationNames.wingName);
-    if (locationNames.spaceName) parts.push(locationNames.spaceName);
-    return parts.length > 0 ? parts.join(' → ') : 'Select location...';
   };
 
   const getLevelDisplayName = () => {
@@ -564,6 +543,19 @@ function TaskAllocation() {
                   >
                     <option value="">Select Wing...</option>
                     {availableWings.map(w => <option key={w.wingId} value={w.wingId}>{w.name}</option>)}
+                  </select>
+                )}
+
+                {/* 🔥 NEW: Added the missing Space dropdown here */}
+                {assignmentLevel === 'space' && (
+                  <select
+                    value={selectedLocation.spaceId}
+                    onChange={(e) => handleSpaceChange(e.target.value)}
+                    disabled={!selectedLocation.wingId}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white disabled:opacity-50"
+                  >
+                    <option value="">Select Space...</option>
+                    {availableSpaces.map(s => <option key={s.spaceId} value={s.spaceId}>{s.name}</option>)}
                   </select>
                 )}
               </div>
