@@ -499,11 +499,13 @@ function TaskAllocation() {
                 <button
                   key={lvl}
                   className={`p-4 border-2 rounded-lg text-center transition-colors capitalize ${
-                    assignmentLevel === lvl ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/30' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
+                    assignmentLevel === lvl 
+                      ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-500/20 dark:text-primary-300' 
+                      : 'border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
                   }`}
                   onClick={() => handleAssignmentLevelChange(lvl)}
                 >
-                  <p className="font-medium text-gray-900 dark:text-white">{lvl}</p>
+                  <p className="font-medium">{lvl}</p>
                 </button>
               ))}
             </div>
@@ -546,7 +548,6 @@ function TaskAllocation() {
                   </select>
                 )}
 
-                {/* 🔥 NEW: Added the missing Space dropdown here */}
                 {assignmentLevel === 'space' && (
                   <select
                     value={selectedLocation.spaceId}

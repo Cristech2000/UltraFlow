@@ -18,11 +18,116 @@ import { useAuth } from '../hooks/useAuth';
 import { getProjectsByOrganization } from '../services/projectService';
 import { getActivitiesByProject } from '../services/activityService';
 import { getTasksByProject, getTasksForUser } from '../services/taskService';
-import { getBuildingsByProject } from '../services/spaceService';
+import { getBuildingsByProject, getFloorsByBuilding, getWingsByFloor, getSpacesByWing } from '../services/spaceService';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import Badge from '../components/common/Badge';
 import ProgressBar from '../components/common/ProgressBar';
+
+// ============================================================================
+// FORENSIC PROGRESS AGGREGATOR (With heavy Console Logging)
+// ============================================================================
+async function calculateAccurateProgress(projectId, acts) {
+  console.log(`\n======================================================`);
+  console.log(`📊 STARTING DASHBOARD MATH FOR PROJECT: ${projectId}`);
+  console.log(`======================================================`);
+  
+  const bldgs = await getBuildingsByProject(projectId);
+  const buildingProgress = {};
+  
+  let projTotal = 0;
+  let bldgCount = 0;
+
+  for (const b of bldgs) {
+    console.log(`\n🏢 Analyzing Building: ${b.name}`);
+    const floors = await getFloorsByBuilding(b.buildingId);
+    let bldgItemsSum = 0;
+    let bldgItemsCount = 0;
+    const floorLogs = [];
+
+    for (const f of floors) {
+      const wings = await getWingsByFloor(f.floorId);
+      let floorItemsSum = 0;
+      let floorItemsCount = 0;
+
+      for (const w of wings) {
+        const spaces = await getSpacesByWing(w.wingId);
+        let wingItemsSum = 0;
+        let wingItemsCount = 0;
+
+        // 1. Space Progress
+        for (const s of spaces) {
+          const spaceActs = acts.filter(a => a.spaceId === s.spaceId);
+          let spaceProg = 0;
+          if (spaceActs.length > 0) {
+            spaceProg = spaceActs.reduce((sum, a) => sum + Number(a.progress || 0), 0) / spaceActs.length;
+          }
+          wingItemsSum += spaceProg;
+          wingItemsCount++;
+        }
+
+        // 2. Wing-wide Progress
+        const wingActs = acts.filter(a => a.wingId === w.wingId && (!a.spaceId || a.scope === 'wing'));
+        for (const wa of wingActs) {
+          wingItemsSum += Number(wa.progress || 0);
+          wingItemsCount++;
+        }
+
+        const finalWingProg = wingItemsCount > 0 ? (wingItemsSum / wingItemsCount) : 0;
+        floorItemsSum += finalWingProg;
+        floorItemsCount++;
+      }
+
+      // 3. Level-wide Progress
+      const floorActs = acts.filter(a => a.floorId === f.floorId && (!a.wingId || a.scope === 'level'));
+      for (const fa of floorActs) {
+        floorItemsSum += Number(fa.progress || 0);
+        floorItemsCount++;
+      }
+
+      const finalFloorProg = floorItemsCount > 0 ? (floorItemsSum / floorItemsCount) : 0;
+      bldgItemsSum += finalFloorProg;
+      bldgItemsCount++;
+      
+      floorLogs.push(`Level: ${f.name} = ${finalFloorProg.toFixed(2)}%`);
+    }
+
+    // 4. Building-wide Progress
+    const bldgActs = acts.filter(a => a.buildingId === b.buildingId && (!a.floorId || a.scope === 'building'));
+    for (const ba of bldgActs) {
+      bldgItemsSum += Number(ba.progress || 0);
+      bldgItemsCount++;
+    }
+
+    const finalBldgProg = bldgItemsCount > 0 ? (bldgItemsSum / bldgItemsCount) : 0;
+    
+    // FORENSIC LOG OUTPUT FOR THIS BUILDING
+    console.log(`   🔸 Levels Found: ${floors.length}`);
+    floorLogs.forEach(log => console.log(`      - ${log}`));
+    console.log(`   🔸 Building-Wide Activities Found: ${bldgActs.length}`);
+    bldgActs.forEach(ba => console.log(`      - ${ba.name}: ${ba.progress || 0}%`));
+    
+    console.log(`   🧮 MATH: (${bldgItemsSum.toFixed(2)} total progress) / (${bldgItemsCount} denominator items)`);
+    console.log(`   🎯 RESULT: RAW = ${finalBldgProg}, ROUNDED = ${Math.round(finalBldgProg)}%`);
+    
+    buildingProgress[b.buildingId] = Math.round(finalBldgProg);
+    projTotal += finalBldgProg;
+    bldgCount++;
+  }
+
+  // 5. Project-wide Progress
+  const projActs = acts.filter(a => a.projectId === projectId && !a.buildingId);
+  for (const pa of projActs) {
+    projTotal += Number(pa.progress || 0);
+    bldgCount++;
+  }
+
+  const projectProgress = bldgCount > 0 ? Math.round(projTotal / bldgCount) : 0;
+  console.log(`\n✅ FINAL DASHBOARD PROGRESS: ${projectProgress}%`);
+  console.log(`======================================================\n`);
+
+  return { projectProgress, buildingProgress };
+}
 
 function Dashboard() {
   const { user, userProfile, userRole, projectIds } = useAuth();
@@ -78,17 +183,20 @@ function Dashboard() {
             }
           }
 
-          // Calculate high-level portfolio stats
+          // Compute accurate hierarchical portfolio stats
           const stats = {};
-          for (const proj of accessibleProjects) {
+          await Promise.all(accessibleProjects.map(async (proj) => {
             const acts = await getActivitiesByProject(proj.projectId);
-            const totalProgress = acts.reduce((sum, act) => sum + (act.progress || 0), 0);
+            const { projectProgress, buildingProgress } = await calculateAccurateProgress(proj.projectId, acts);
+            
             stats[proj.projectId] = {
-              progress: acts.length > 0 ? Math.round(totalProgress / acts.length) : 0,
+              progress: projectProgress,
+              buildingProgress: buildingProgress,
               activityCount: acts.length,
               completedCount: acts.filter(a => a.status === 'completed').length
             };
-          }
+          }));
+
           if (isMounted) setProjectStats(stats);
         }
       } catch (err) {
@@ -117,13 +225,14 @@ function Dashboard() {
 
         if (!isMounted) return;
 
-        // Calculate Building-specific progress directly from activities for extreme performance
-        const bldgProg = {};
-        bldgs.forEach(b => {
-          const bldgActs = acts.filter(a => a.buildingId === b.buildingId);
-          const sum = bldgActs.reduce((acc, a) => acc + (a.progress || 0), 0);
-          bldgProg[b.buildingId] = bldgActs.length > 0 ? Math.round(sum / bldgActs.length) : 0;
-        });
+        // Pull the accurately computed progress from projectStats
+        let bldgProg = projectStats[selectedProjectId]?.buildingProgress || {};
+
+        // Fallback: Just in case the stats effect is still resolving
+        if (Object.keys(bldgProg).length === 0 && bldgs.length > 0) {
+          const { buildingProgress } = await calculateAccurateProgress(selectedProjectId, acts);
+          bldgProg = buildingProgress;
+        }
 
         setActiveProjectData({
           buildings: bldgs || [],
@@ -138,7 +247,7 @@ function Dashboard() {
 
     loadActiveProject();
     return () => { isMounted = false; };
-  }, [selectedProjectId, isElectrician]);
+  }, [selectedProjectId, isElectrician, projectStats]);
 
   if (loading) {
     return (
@@ -232,7 +341,6 @@ function Dashboard() {
   // Exceptions & Health Metrics
   const pendingTasks = tasks.filter(t => t.status === 'submitted');
   const rejectedTasks = tasks.filter(t => t.status === 'rejected');
-  const activeTasks = tasks.filter(t => t.status === 'in_progress');
 
   // Overall Portfolio Progress
   const totalPortfolioProgress = projects.length > 0 
@@ -402,55 +510,6 @@ function Dashboard() {
               </div>
             )}
           </Card>
-
-          {/* DOCUMENTATION & TASK WORKFLOW SUMMARY */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Card title="Activity Status Summary">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-600 dark:text-gray-400">Total Tracked Activities</span>
-                  <span className="font-semibold">{activities.length}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-600 dark:text-gray-400">Completed (100%)</span>
-                  <span className="font-semibold text-green-600">{activities.filter(a => a.status === 'completed').length}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-600 dark:text-gray-400">In Progress</span>
-                  <span className="font-semibold text-blue-600">{activities.filter(a => a.status === 'in_progress').length}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-600 dark:text-gray-400">Not Started</span>
-                  <span className="font-semibold text-gray-500">{activities.filter(a => a.status === 'not_started').length}</span>
-                </div>
-              </div>
-            </Card>
-
-            <Card title="Recent Task Workflow">
-              <div className="space-y-4">
-                {tasks.slice(0, 4).map(task => (
-                  <div key={task.taskId} className="flex items-start gap-3">
-                    <div className={`p-1.5 rounded-full mt-0.5 ${
-                      task.status === 'approved' ? 'bg-green-100 text-green-600' :
-                      task.status === 'rejected' ? 'bg-red-100 text-red-600' :
-                      task.status === 'submitted' ? 'bg-yellow-100 text-yellow-600' :
-                      'bg-blue-100 text-blue-600'
-                    }`}>
-                      {task.status === 'approved' ? <CheckCircle size={14} /> :
-                       task.status === 'rejected' ? <XCircle size={14} /> :
-                       task.status === 'submitted' ? <Clock size={14} /> :
-                       <Activity size={14} />}
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-900 dark:text-white">{task.activityName}</p>
-                      <p className="text-xs text-gray-500 capitalize">Status: {task.status.replace('_', ' ')} • Scope: {task.scopeType}</p>
-                    </div>
-                  </div>
-                ))}
-                {tasks.length === 0 && <p className="text-sm text-gray-500">No task history found.</p>}
-              </div>
-            </Card>
-          </div>
 
         </div>
       )}

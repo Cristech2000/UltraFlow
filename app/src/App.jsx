@@ -21,6 +21,7 @@ import SpaceDetail from './pages/SpaceDetail';
 import Timeline from './pages/Timeline';
 import Reports from './pages/Reports';
 import Assessments from './pages/Assessments';
+import AssessmentDetail from './pages/AssessmentDetail'; // 🔥 ADDED THIS IMPORT
 import Issues from './pages/Issues';
 import Drawings from './pages/Drawings';
 import Analytics from './pages/Analytics';
@@ -30,7 +31,6 @@ import TaskAllocation from './pages/TaskAllocation';
 import MyTasks from './pages/MyTasks';
 import PendingApprovals from './pages/PendingApprovals';
 import TaskDetail from './pages/TaskDetail';
-
 
 function App() {
   return (
@@ -66,13 +66,16 @@ function App() {
               <Route path="projects/:projectId/buildings/:buildingId/floors/:floorId" element={<LevelDetail />} />
               <Route path="projects/:projectId/buildings/:buildingId/floors/:floorId/wings/:wingId" element={<WingDetail />} />
               
-              {/* 🔥 FIXED ROUTE HERE 🔥 */}
               <Route path="projects/:projectId/buildings/:buildingId/floors/:floorId/wings/:wingId/spaces/:spaceId" element={<SpaceDetail />} />
               
               <Route path="tasks/:taskId" element={<TaskDetail />} />
               <Route path="timeline" element={<Timeline />} />
               <Route path="reports" element={<Reports />} />
+              
+              {/* 🔥 ADDED BOTH ASSESSMENT ROUTES HERE */}
               <Route path="assessments" element={<Assessments />} />
+              <Route path="assessments/:assessmentId" element={<AssessmentDetail />} />
+              
               <Route path="issues" element={<Issues />} />
               <Route path="drawings" element={<Drawings />} />
               <Route path="analytics" element={<Analytics />} />
@@ -81,7 +84,6 @@ function App() {
               <Route path="tasks" element={<TaskAllocation />} />
               <Route path="my-tasks" element={<MyTasks />} />
               <Route path="pending-approvals" element={<PendingApprovals />} />
-              
               
               {/* Admin Routes - HR and Director only */}
               <Route
