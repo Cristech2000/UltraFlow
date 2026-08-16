@@ -25,13 +25,9 @@ import Badge from '../components/common/Badge';
 import ProgressBar from '../components/common/ProgressBar';
 
 // ============================================================================
-// FORENSIC PROGRESS AGGREGATOR (With heavy Console Logging)
+// ULTRA-PRECISE CUMULATIVE PROGRESS AGGREGATOR
 // ============================================================================
 async function calculateAccurateProgress(projectId, acts) {
-  console.log(`\n======================================================`);
-  console.log(`📊 STARTING DASHBOARD MATH FOR PROJECT: ${projectId}`);
-  console.log(`======================================================`);
-  
   const bldgs = await getBuildingsByProject(projectId);
   const buildingProgress = {};
   
@@ -39,11 +35,9 @@ async function calculateAccurateProgress(projectId, acts) {
   let bldgCount = 0;
 
   for (const b of bldgs) {
-    console.log(`\n🏢 Analyzing Building: ${b.name}`);
     const floors = await getFloorsByBuilding(b.buildingId);
     let bldgItemsSum = 0;
     let bldgItemsCount = 0;
-    const floorLogs = [];
 
     for (const f of floors) {
       const wings = await getWingsByFloor(f.floorId);
@@ -55,7 +49,6 @@ async function calculateAccurateProgress(projectId, acts) {
         let wingItemsSum = 0;
         let wingItemsCount = 0;
 
-        // 1. Space Progress
         for (const s of spaces) {
           const spaceActs = acts.filter(a => a.spaceId === s.spaceId);
           let spaceProg = 0;
@@ -66,8 +59,7 @@ async function calculateAccurateProgress(projectId, acts) {
           wingItemsCount++;
         }
 
-        // 2. Wing-wide Progress
-        const wingActs = acts.filter(a => a.wingId === w.wingId && (!a.spaceId || a.scope === 'wing'));
+        const wingActs = acts.filter(a => a.wingId === w.wingId && !a.spaceId);
         for (const wa of wingActs) {
           wingItemsSum += Number(wa.progress || 0);
           wingItemsCount++;
@@ -78,8 +70,7 @@ async function calculateAccurateProgress(projectId, acts) {
         floorItemsCount++;
       }
 
-      // 3. Level-wide Progress
-      const floorActs = acts.filter(a => a.floorId === f.floorId && (!a.wingId || a.scope === 'level'));
+      const floorActs = acts.filter(a => a.floorId === f.floorId && !a.wingId);
       for (const fa of floorActs) {
         floorItemsSum += Number(fa.progress || 0);
         floorItemsCount++;
@@ -88,12 +79,9 @@ async function calculateAccurateProgress(projectId, acts) {
       const finalFloorProg = floorItemsCount > 0 ? (floorItemsSum / floorItemsCount) : 0;
       bldgItemsSum += finalFloorProg;
       bldgItemsCount++;
-      
-      floorLogs.push(`Level: ${f.name} = ${finalFloorProg.toFixed(2)}%`);
     }
 
-    // 4. Building-wide Progress
-    const bldgActs = acts.filter(a => a.buildingId === b.buildingId && (!a.floorId || a.scope === 'building'));
+    const bldgActs = acts.filter(a => a.buildingId === b.buildingId && !a.floorId);
     for (const ba of bldgActs) {
       bldgItemsSum += Number(ba.progress || 0);
       bldgItemsCount++;
@@ -101,21 +89,12 @@ async function calculateAccurateProgress(projectId, acts) {
 
     const finalBldgProg = bldgItemsCount > 0 ? (bldgItemsSum / bldgItemsCount) : 0;
     
-    // FORENSIC LOG OUTPUT FOR THIS BUILDING
-    console.log(`   🔸 Levels Found: ${floors.length}`);
-    floorLogs.forEach(log => console.log(`      - ${log}`));
-    console.log(`   🔸 Building-Wide Activities Found: ${bldgActs.length}`);
-    bldgActs.forEach(ba => console.log(`      - ${ba.name}: ${ba.progress || 0}%`));
-    
-    console.log(`   🧮 MATH: (${bldgItemsSum.toFixed(2)} total progress) / (${bldgItemsCount} denominator items)`);
-    console.log(`   🎯 RESULT: RAW = ${finalBldgProg}, ROUNDED = ${Math.round(finalBldgProg)}%`);
-    
     buildingProgress[b.buildingId] = Math.round(finalBldgProg);
+    
     projTotal += finalBldgProg;
     bldgCount++;
   }
 
-  // 5. Project-wide Progress
   const projActs = acts.filter(a => a.projectId === projectId && !a.buildingId);
   for (const pa of projActs) {
     projTotal += Number(pa.progress || 0);
@@ -123,8 +102,6 @@ async function calculateAccurateProgress(projectId, acts) {
   }
 
   const projectProgress = bldgCount > 0 ? Math.round(projTotal / bldgCount) : 0;
-  console.log(`\n✅ FINAL DASHBOARD PROGRESS: ${projectProgress}%`);
-  console.log(`======================================================\n`);
 
   return { projectProgress, buildingProgress };
 }
@@ -137,7 +114,6 @@ function Dashboard() {
   const [projects, setProjects] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState('');
   
-  // Dashboard Data States
   const [projectStats, setProjectStats] = useState({});
   const [activeProjectData, setActiveProjectData] = useState({
     buildings: [],
@@ -146,7 +122,6 @@ function Dashboard() {
     buildingProgress: {}
   });
 
-  // Electrician Data State
   const [myTasks, setMyTasks] = useState([]);
 
   const isGlobalRole = ['hr', 'director'].includes(userRole);
@@ -160,15 +135,9 @@ function Dashboard() {
       setLoading(true);
       try {
         if (isElectrician) {
-          // ==========================================
-          // ELECTRICIAN WORKFLOW
-          // ==========================================
           const tasks = await getTasksForUser(user?.uid);
           if (isMounted) setMyTasks(tasks || []);
         } else {
-          // ==========================================
-          // MANAGEMENT & DOCS WORKFLOW
-          // ==========================================
           const orgId = userProfile?.organizationId || 'ultrapower';
           const allProjects = await getProjectsByOrganization(orgId);
           
@@ -183,7 +152,6 @@ function Dashboard() {
             }
           }
 
-          // Compute accurate hierarchical portfolio stats
           const stats = {};
           await Promise.all(accessibleProjects.map(async (proj) => {
             const acts = await getActivitiesByProject(proj.projectId);
@@ -210,7 +178,6 @@ function Dashboard() {
     return () => { isMounted = false; };
   }, [userProfile, userRole, projectIds, isGlobalRole, isElectrician, user?.uid]);
 
-  // Load deep data for the currently selected project in the dashboard
   useEffect(() => {
     let isMounted = true;
     const loadActiveProject = async () => {
@@ -225,10 +192,8 @@ function Dashboard() {
 
         if (!isMounted) return;
 
-        // Pull the accurately computed progress from projectStats
         let bldgProg = projectStats[selectedProjectId]?.buildingProgress || {};
 
-        // Fallback: Just in case the stats effect is still resolving
         if (Object.keys(bldgProg).length === 0 && bldgs.length > 0) {
           const { buildingProgress } = await calculateAccurateProgress(selectedProjectId, acts);
           bldgProg = buildingProgress;
@@ -269,10 +234,10 @@ function Dashboard() {
     const pendingApproval = myTasks.filter(t => t.status === 'submitted');
 
     return (
-      <div className="space-y-6">
+      <div className="space-y-4 md:space-y-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">My Workspace</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">Welcome back. Here is your current work summary.</p>
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">My Workspace</h1>
+          <p className="text-sm md:text-base text-gray-500 dark:text-gray-400 mt-1">Welcome back. Here is your current work summary.</p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -280,9 +245,9 @@ function Dashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-blue-600 dark:text-blue-400">To Do / In Progress</p>
-                <p className="text-3xl font-bold text-blue-700 dark:text-blue-300 mt-1">{inProgress.length}</p>
+                <p className="text-2xl md:text-3xl font-bold text-blue-700 dark:text-blue-300 mt-1">{inProgress.length}</p>
               </div>
-              <Activity size={32} className="text-blue-300 dark:text-blue-700" />
+              <Activity className="text-blue-300 dark:text-blue-700 w-8 h-8 md:w-10 md:h-10" />
             </div>
           </Card>
           
@@ -290,9 +255,9 @@ function Dashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-red-600 dark:text-red-400">Requires Revision</p>
-                <p className="text-3xl font-bold text-red-700 dark:text-red-300 mt-1">{rejected.length}</p>
+                <p className="text-2xl md:text-3xl font-bold text-red-700 dark:text-red-300 mt-1">{rejected.length}</p>
               </div>
-              <AlertTriangle size={32} className="text-red-300 dark:text-red-700" />
+              <AlertTriangle className="text-red-300 dark:text-red-700 w-8 h-8 md:w-10 md:h-10" />
             </div>
           </Card>
 
@@ -300,22 +265,22 @@ function Dashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-yellow-600 dark:text-yellow-400">Pending Approval</p>
-                <p className="text-3xl font-bold text-yellow-700 dark:text-yellow-300 mt-1">{pendingApproval.length}</p>
+                <p className="text-2xl md:text-3xl font-bold text-yellow-700 dark:text-yellow-300 mt-1">{pendingApproval.length}</p>
               </div>
-              <Clock size={32} className="text-yellow-300 dark:text-yellow-700" />
+              <Clock className="text-yellow-300 dark:text-yellow-700 w-8 h-8 md:w-10 md:h-10" />
             </div>
           </Card>
         </div>
 
         <Card title="Action Required">
           {rejected.length === 0 && inProgress.length === 0 ? (
-            <div className="text-center py-6 text-gray-500">You are all caught up!</div>
+            <div className="text-center py-6 text-gray-500 text-sm md:text-base">You are all caught up!</div>
           ) : (
             <div className="space-y-3">
               {[...rejected, ...inProgress].slice(0, 5).map(task => (
                 <div key={task.taskId} className="flex items-center justify-between p-3 border border-gray-200 dark:border-gray-700 rounded-lg">
                   <div>
-                    <h4 className="font-medium text-gray-900 dark:text-white">{task.activityName || 'Task'}</h4>
+                    <h4 className="font-medium text-sm md:text-base text-gray-900 dark:text-white truncate">{task.activityName || 'Task'}</h4>
                     <p className="text-xs text-gray-500">Assigned: {new Date(task.createdAt).toLocaleDateString()}</p>
                   </div>
                   <Button size="sm" variant="primary" onClick={() => navigate(`/tasks/${task.taskId}`)}>Update</Button>
@@ -324,7 +289,7 @@ function Dashboard() {
             </div>
           )}
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-            <Button variant="ghost" className="w-full" onClick={() => navigate('/my-tasks')}>View All My Tasks</Button>
+            <Button variant="ghost" className="w-full text-sm md:text-base" onClick={() => navigate('/my-tasks')}>View All My Tasks</Button>
           </div>
         </Card>
       </div>
@@ -338,30 +303,28 @@ function Dashboard() {
   const activeProj = projects.find(p => p.projectId === selectedProjectId);
   const { buildings, activities, tasks, buildingProgress } = activeProjectData;
 
-  // Exceptions & Health Metrics
   const pendingTasks = tasks.filter(t => t.status === 'submitted');
   const rejectedTasks = tasks.filter(t => t.status === 'rejected');
 
-  // Overall Portfolio Progress
   const totalPortfolioProgress = projects.length > 0 
     ? Math.round(projects.reduce((acc, p) => acc + (projectStats[p.projectId]?.progress || 0), 0) / projects.length)
     : 0;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-4 md:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 md:gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Management Dashboard</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">Portfolio overview and documentation health</p>
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">Management Dashboard</h1>
+          <p className="text-sm md:text-base text-gray-500 dark:text-gray-400 mt-1">Portfolio overview and documentation health</p>
         </div>
         
         {projects.length > 1 && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Active Context:</span>
             <select
               value={selectedProjectId}
               onChange={(e) => setSelectedProjectId(e.target.value)}
-              className="px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 font-medium"
+              className="w-full sm:w-auto px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 font-medium text-sm"
             >
               {projects.map(p => (
                 <option key={p.projectId} value={p.projectId}>{p.name}</option>
@@ -371,30 +334,30 @@ function Dashboard() {
         )}
       </div>
 
-      {/* PORTFOLIO OVERVIEW (Visible if viewing all projects) */}
+      {/* PORTFOLIO OVERVIEW */}
       {(isGlobalRole || projects.length > 1) && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
           <Card className="bg-gradient-to-br from-primary-500 to-primary-600 text-white border-none">
-            <p className="text-primary-100 text-sm font-medium">Portfolio Progress</p>
-            <div className="flex items-end gap-3 mt-1">
-              <span className="text-4xl font-bold">{totalPortfolioProgress}%</span>
-              <TrendingUp size={24} className="text-primary-200 mb-1" />
+            <p className="text-primary-100 text-xs md:text-sm font-medium">Portfolio Progress</p>
+            <div className="flex items-end gap-2 md:gap-3 mt-1">
+              <span className="text-3xl md:text-4xl font-bold">{totalPortfolioProgress}%</span>
+              <TrendingUp className="text-primary-200 mb-1 w-5 h-5 md:w-6 md:h-6" />
             </div>
           </Card>
           <Card>
-            <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">Accessible Projects</p>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{projects.length}</p>
+            <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 font-medium">Accessible Projects</p>
+            <p className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white mt-1">{projects.length}</p>
           </Card>
           <Card>
-            <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">Global Pending Approvals</p>
-            <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400 mt-1">
+            <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 font-medium">Global Pending Approvals</p>
+            <p className="text-xl md:text-2xl font-bold text-yellow-600 dark:text-yellow-400 mt-1">
               {projects.reduce((acc, p) => acc + tasks.filter(t => t.projectId === p.projectId && t.status === 'submitted').length, 0)}
             </p>
           </Card>
           <Card>
-            <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">Documentation Health</p>
+            <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 font-medium">Documentation Health</p>
             <div className="flex items-center gap-2 mt-2">
-              <Badge className="bg-green-100 text-green-700">Healthy</Badge>
+              <Badge className="bg-green-100 text-green-700 text-xs py-0.5 px-2">Healthy</Badge>
             </div>
           </Card>
         </div>
@@ -403,7 +366,7 @@ function Dashboard() {
       {/* PROJECT COMPARISON WIDGET */}
       {projects.length > 1 && (
         <Card title="Project Comparison">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
             {projects.map(p => (
               <div 
                 key={p.projectId} 
@@ -411,8 +374,8 @@ function Dashboard() {
                 onClick={() => setSelectedProjectId(p.projectId)}
               >
                 <div className="flex justify-between items-center mb-2">
-                  <h4 className="font-semibold text-gray-900 dark:text-white truncate pr-2">{p.name}</h4>
-                  <span className="text-sm font-bold text-primary-600">{projectStats[p.projectId]?.progress || 0}%</span>
+                  <h4 className="font-medium md:font-semibold text-gray-900 dark:text-white truncate pr-2 text-sm md:text-base">{p.name}</h4>
+                  <span className="text-xs md:text-sm font-bold text-primary-600">{projectStats[p.projectId]?.progress || 0}%</span>
                 </div>
                 <ProgressBar value={projectStats[p.projectId]?.progress || 0} showLabel={false} />
               </div>
@@ -425,58 +388,58 @@ function Dashboard() {
 
       {/* ACTIVE PROJECT DEEP DIVE */}
       {activeProj && (
-        <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-              <FolderKanban className="text-primary-500" />
-              {activeProj.name} Context
+        <div className="space-y-4 md:space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <FolderKanban className="text-primary-500 w-5 h-5 md:w-6 md:h-6 flex-shrink-0" />
+              <span className="truncate">{activeProj.name} Context</span>
             </h2>
-            <Button variant="outline" onClick={() => navigate(`/projects/${activeProj.projectId}`)}>
+            <Button variant="outline" className="w-full sm:w-auto text-sm" onClick={() => navigate(`/projects/${activeProj.projectId}`)}>
               Open Project Workspace
             </Button>
           </div>
 
           {/* PROJECT EXCEPTIONS & ATTENTION */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <Card className="border-l-4 border-yellow-500">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                  <Clock size={18} className="text-yellow-500" />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4">
+            <Card className="border-l-4 border-yellow-500 p-3 md:p-4">
+              <div className="flex items-center justify-between mb-3 md:mb-4">
+                <h3 className="text-sm md:text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                  <Clock className="text-yellow-500 w-4 h-4 md:w-5 md:h-5" />
                   Requires Approval ({pendingTasks.length})
                 </h3>
                 {canApprove && (
-                  <Link to="/pending-approvals" className="text-sm text-primary-600 hover:underline">View All</Link>
+                  <Link to="/pending-approvals" className="text-xs md:text-sm text-primary-600 hover:underline">View All</Link>
                 )}
               </div>
               {pendingTasks.length === 0 ? (
-                <p className="text-sm text-gray-500">No tasks currently awaiting approval.</p>
+                <p className="text-xs md:text-sm text-gray-500">No tasks currently awaiting approval.</p>
               ) : (
                 <div className="space-y-2">
                   {pendingTasks.slice(0, 3).map(task => (
                     <div key={task.taskId} className="flex items-center justify-between p-2 bg-yellow-50 dark:bg-yellow-900/10 rounded border border-yellow-100 dark:border-yellow-800">
-                      <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{task.activityName}</span>
-                      <Button size="sm" variant="ghost" onClick={() => navigate(`/tasks/${task.taskId}`)}>Review</Button>
+                      <span className="text-xs md:text-sm font-medium text-gray-800 dark:text-gray-200 truncate pr-2">{task.activityName}</span>
+                      <Button size="sm" variant="ghost" className="text-xs px-2 py-1" onClick={() => navigate(`/tasks/${task.taskId}`)}>Review</Button>
                     </div>
                   ))}
                 </div>
               )}
             </Card>
 
-            <Card className="border-l-4 border-red-500">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                  <XCircle size={18} className="text-red-500" />
+            <Card className="border-l-4 border-red-500 p-3 md:p-4">
+              <div className="flex items-center justify-between mb-3 md:mb-4">
+                <h3 className="text-sm md:text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                  <XCircle className="text-red-500 w-4 h-4 md:w-5 md:h-5" />
                   Rejected / Attention ({rejectedTasks.length})
                 </h3>
               </div>
               {rejectedTasks.length === 0 ? (
-                <p className="text-sm text-gray-500">No rejected tasks requiring attention.</p>
+                <p className="text-xs md:text-sm text-gray-500">No rejected tasks requiring attention.</p>
               ) : (
                 <div className="space-y-2">
                   {rejectedTasks.slice(0, 3).map(task => (
                     <div key={task.taskId} className="flex items-center justify-between p-2 bg-red-50 dark:bg-red-900/10 rounded border border-red-100 dark:border-red-800">
-                      <span className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{task.activityName}</span>
-                      <Button size="sm" variant="ghost" onClick={() => navigate(`/tasks/${task.taskId}`)}>Investigate</Button>
+                      <span className="text-xs md:text-sm font-medium text-gray-800 dark:text-gray-200 truncate pr-2">{task.activityName}</span>
+                      <Button size="sm" variant="ghost" className="text-xs px-2 py-1" onClick={() => navigate(`/tasks/${task.taskId}`)}>Investigate</Button>
                     </div>
                   ))}
                 </div>
@@ -487,20 +450,20 @@ function Dashboard() {
           {/* BUILDING BREAKDOWN */}
           <Card title="Building Progress Breakdown">
             {buildings.length === 0 ? (
-              <p className="text-gray-500">No buildings defined for this project.</p>
+              <p className="text-xs md:text-sm text-gray-500">No buildings defined for this project.</p>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 mt-2">
                 {buildings.map(bldg => (
-                  <div key={bldg.buildingId} className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:shadow-md transition-shadow">
+                  <div key={bldg.buildingId} className="p-3 md:p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:shadow-md transition-shadow">
                     <div className="flex items-center justify-between mb-2">
-                      <h4 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                        <Building2 size={16} className="text-gray-400" />
-                        {bldg.name}
+                      <h4 className="text-sm md:text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2 truncate pr-2">
+                        <Building2 className="text-gray-400 w-4 h-4 md:w-5 md:h-5 flex-shrink-0" />
+                        <span className="truncate">{bldg.name}</span>
                       </h4>
-                      <span className="font-bold text-gray-900 dark:text-white">{buildingProgress[bldg.buildingId] || 0}%</span>
+                      <span className="text-sm md:text-base font-bold text-gray-900 dark:text-white">{buildingProgress[bldg.buildingId] || 0}%</span>
                     </div>
                     <ProgressBar value={buildingProgress[bldg.buildingId] || 0} showLabel={false} />
-                    <div className="mt-3 text-right">
+                    <div className="mt-2 md:mt-3 text-right">
                       <Link to={`/projects/${activeProj.projectId}/buildings/${bldg.buildingId}`} className="text-xs text-primary-600 font-medium hover:underline">
                         Drill Down →
                       </Link>
@@ -511,6 +474,54 @@ function Dashboard() {
             )}
           </Card>
 
+          {/* DOCUMENTATION & TASK WORKFLOW SUMMARY */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4">
+            <Card title="Activity Status Summary">
+              <div className="space-y-2 md:space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs md:text-sm text-gray-600 dark:text-gray-400">Total Tracked Activities</span>
+                  <span className="text-sm md:text-base font-semibold">{activities.length}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs md:text-sm text-gray-600 dark:text-gray-400">Completed (100%)</span>
+                  <span className="text-sm md:text-base font-semibold text-green-600">{activities.filter(a => a.status === 'completed').length}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs md:text-sm text-gray-600 dark:text-gray-400">In Progress</span>
+                  <span className="text-sm md:text-base font-semibold text-blue-600">{activities.filter(a => a.status === 'in_progress').length}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs md:text-sm text-gray-600 dark:text-gray-400">Not Started</span>
+                  <span className="text-sm md:text-base font-semibold text-gray-500">{activities.filter(a => a.status === 'not_started').length}</span>
+                </div>
+              </div>
+            </Card>
+
+            <Card title="Recent Task Workflow">
+              <div className="space-y-3 md:space-y-4">
+                {tasks.slice(0, 4).map(task => (
+                  <div key={task.taskId} className="flex items-start gap-2 md:gap-3">
+                    <div className={`p-1 md:p-1.5 rounded-full mt-0.5 flex-shrink-0 ${
+                      task.status === 'approved' ? 'bg-green-100 text-green-600' :
+                      task.status === 'rejected' ? 'bg-red-100 text-red-600' :
+                      task.status === 'submitted' ? 'bg-yellow-100 text-yellow-600' :
+                      'bg-blue-100 text-blue-600'
+                    }`}>
+                      {task.status === 'approved' ? <CheckCircle size={12} className="md:w-3.5 md:h-3.5" /> :
+                       task.status === 'rejected' ? <XCircle size={12} className="md:w-3.5 md:h-3.5" /> :
+                       task.status === 'submitted' ? <Clock size={12} className="md:w-3.5 md:h-3.5" /> :
+                       <Activity size={12} className="md:w-3.5 md:h-3.5" />}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs md:text-sm font-medium text-gray-900 dark:text-white truncate">{task.activityName}</p>
+                      <p className="text-[10px] md:text-xs text-gray-500 capitalize truncate">Status: {task.status.replace('_', ' ')} • Scope: {task.scopeType}</p>
+                    </div>
+                  </div>
+                ))}
+                {tasks.length === 0 && <p className="text-xs md:text-sm text-gray-500">No task history found.</p>}
+              </div>
+            </Card>
+          </div>
         </div>
       )}
     </div>
