@@ -10,6 +10,8 @@ import {
   FileText
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import { database } from '../lib/firebase';
+import { ref, set } from 'firebase/database';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import Badge from '../components/common/Badge';
@@ -17,6 +19,8 @@ import Badge from '../components/common/Badge';
 export default function Settings() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('notifications');
+  
+  // [DISABLED] const [isNuking, setIsNuking] = useState(false);
 
   // Mock states for preferences 
   const [notifications, setNotifications] = useState({
@@ -30,6 +34,33 @@ export default function Settings() {
     // TODO: Wire up to Firebase sendPasswordResetEmail
     alert(`A password reset link would be sent to ${user?.email}`);
   };
+
+  /* 
+  // 🔥 THE EMERGENCY NUKE FUNCTION (Commented out for safety)
+  const handleEmergencyNuke = async () => {
+    if (!window.confirm("🚨 WARNING: This will instantly delete ALL buildings, levels, wings, spaces, and activities across the entire system. Are you absolutely sure?")) {
+      return;
+    }
+
+    setIsNuking(true);
+    try {
+      // Setting a node to null in Firebase deletes it instantly
+      await set(ref(database, 'activities'), null);
+      await set(ref(database, 'spaces'), null);
+      await set(ref(database, 'wings'), null);
+      await set(ref(database, 'floors'), null);
+      await set(ref(database, 'buildings'), null);
+
+      alert('💥 Database wiped clean! You can now start fresh.');
+      window.location.reload(); // Refresh the page to clear local state
+    } catch (err) {
+      console.error('Nuke failed:', err);
+      alert('Failed to wipe database.');
+    } finally {
+      setIsNuking(false);
+    }
+  };
+  */
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
@@ -86,9 +117,9 @@ export default function Settings() {
                       onChange={(e) => setNotifications({...notifications, emailAlerts: e.target.checked})}
                     />
                   </div>
-                  
+
                   <hr className="border-gray-100 dark:border-gray-800" />
-                  
+
                   <div className="flex items-start justify-between">
                     <div className="flex gap-3">
                       <CheckSquare className="text-gray-400 mt-0.5" size={18} />
@@ -106,7 +137,7 @@ export default function Settings() {
                   </div>
 
                   <hr className="border-gray-100 dark:border-gray-800" />
-                  
+
                   <div className="flex items-start justify-between">
                     <div className="flex gap-3">
                       <AlertTriangle className="text-gray-400 mt-0.5" size={18} />
@@ -124,7 +155,7 @@ export default function Settings() {
                   </div>
 
                   <hr className="border-gray-100 dark:border-gray-800" />
-                  
+
                   <div className="flex items-start justify-between">
                     <div className="flex gap-3">
                       <FileText className="text-gray-400 mt-0.5" size={18} />
@@ -173,6 +204,29 @@ export default function Settings() {
                   <Badge className="bg-green-100 text-green-700">This Device</Badge>
                 </div>
               </Card>
+
+              {/* DANGER ZONE FOR DB NUKE (Commented out for safety)
+              <Card 
+                title="Danger Zone" 
+                className="border-red-200 dark:border-red-900/50"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h4 className="text-sm font-medium text-red-600 dark:text-red-400">Emergency Database Wipe</h4>
+                    <p className="text-sm text-gray-500">Instantly delete all buildings, levels, wings, spaces, and activities globally.</p>
+                  </div>
+                  <Button 
+                    variant="danger" 
+                    icon={<AlertTriangle size={16} />} 
+                    onClick={handleEmergencyNuke}
+                    loading={isNuking}
+                  >
+                    Nuke Database
+                  </Button>
+                </div>
+              </Card>
+              */}
+
             </div>
           )}
         </div>

@@ -13,6 +13,13 @@ export const SPACE_TYPES = [
   'Meeting Room', 'Pantry', 'Utility Room', 'Garage', 'Other',
 ];
 
+// 🔥 ELEGANT SORTING UTILITY
+const sortByCreationAndName = (a, b) => {
+  const timeDiff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+  if (timeDiff !== 0) return timeDiff;
+  return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+};
+
 // ============================================================
 // BUILDINGS
 // ============================================================
@@ -45,15 +52,15 @@ export async function createBuilding(buildingData, projectId, userId) {
 
 export async function getBuildingsByProject(projectId) {
   try {
-    const buildingsRef = ref(database, BUILDINGS_PATH);
-    const snapshot = await get(buildingsRef);
+    // 🔥 OPTIMIZED SERVER-SIDE QUERY
+    const q = query(ref(database, BUILDINGS_PATH), orderByChild('projectId'), equalTo(projectId));
+    const snapshot = await get(q);
     
     if (snapshot.exists()) {
       const buildings = snapshot.val();
       return Object.keys(buildings)
         .map(key => ({ ...buildings[key] }))
-        .filter(building => building.projectId === projectId)
-        .sort((a, b) => a.name.localeCompare(b.name));
+        .sort(sortByCreationAndName);
     }
     return [];
   } catch (error) {
@@ -121,15 +128,15 @@ export async function createFloor(floorData, buildingId, projectId, userId) {
 
 export async function getFloorsByBuilding(buildingId) {
   try {
-    const floorsRef = ref(database, FLOORS_PATH);
-    const snapshot = await get(floorsRef);
+    // 🔥 OPTIMIZED SERVER-SIDE QUERY
+    const q = query(ref(database, FLOORS_PATH), orderByChild('buildingId'), equalTo(buildingId));
+    const snapshot = await get(q);
     
     if (snapshot.exists()) {
       const floors = snapshot.val();
       return Object.keys(floors)
         .map(key => ({ ...floors[key] }))
-        .filter(floor => floor.buildingId === buildingId)
-        .sort((a, b) => a.levelNumber - b.levelNumber);
+        .sort((a, b) => a.levelNumber - b.levelNumber); 
     }
     return [];
   } catch (error) {
@@ -164,7 +171,7 @@ export async function updateFloor(floorId, updates) {
 }
 
 /**
- * 🔥 MEGA CLONER: Deep clones a Floor, including all its Wings, Spaces, and Activities.
+ * 🔥 MEGA CLONER: Deep clones using ATOMIC BATCH UPDATES
  */
 export async function bulkCloneFloor(floorId, cloneConfig, userId) {
   try {
@@ -173,98 +180,91 @@ export async function bulkCloneFloor(floorId, cloneConfig, userId) {
 
     const { count, prefix, startNumber } = cloneConfig;
 
-    // 1. Fetch all hierarchical children
-    const origWings = await getWingsByFloor(floorId);
-    const origSpaces = await getSpacesByFloor(floorId);
+    const [origWings, origSpaces] = await Promise.all([
+      getWingsByFloor(floorId),
+      getSpacesByFloor(floorId)
+    ]);
     
-    // Fetch all activities attached anywhere within this floor
     const activitiesQuery = query(ref(database, 'activities'), orderByChild('floorId'), equalTo(floorId));
     const actsSnap = await get(activitiesQuery);
     const origActs = actsSnap.exists() ? Object.values(actsSnap.val()) : [];
 
-    const floorsRef = ref(database, FLOORS_PATH);
-    const wingsRef = ref(database, WINGS_PATH);
-    const spacesRef = ref(database, SPACES_PATH);
-    const activitiesRef = ref(database, 'activities');
-    
     const createdFloors = [];
+    const baseTime = Date.now();
+    const batchUpdates = {}; // Accumulates all writes
 
-    // 2. Run the duplication loop
     for (let i = 0; i < count; i++) {
       const currentNumber = startNumber + i;
       const newFloorName = `${prefix}${currentNumber}`;
+      const creationTime = new Date(baseTime + (i * 1000)).toISOString(); 
       
-      // Create New Floor
-      const newFloorRef = push(floorsRef);
+      const newFloorRef = push(ref(database, FLOORS_PATH));
       const newFloorId = newFloorRef.key;
       
       const newFloor = {
         ...origFloor,
         floorId: newFloorId,
         name: newFloorName,
-        levelNumber: (origFloor.levelNumber || 0) + i + 1, // Auto-increment structural level
+        levelNumber: (origFloor.levelNumber || 0) + i + 1,
         code: origFloor.code ? `${origFloor.code.replace(/\d+$/, '')}${currentNumber}` : '',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdAt: creationTime,
+        updatedAt: creationTime,
         createdBy: userId || '',
       };
-      await set(newFloorRef, newFloor);
+      batchUpdates[`${FLOORS_PATH}/${newFloorId}`] = newFloor;
       createdFloors.push(newFloor);
 
-      // Maps to track old IDs to new IDs so child elements get linked to the correct clones
       const wingIdMap = {};
       const spaceIdMap = {};
 
-      // Clone Wings
-      for (const ow of origWings) {
-        const newWingRef = push(wingsRef);
+      for (let j = 0; j < origWings.length; j++) {
+        const ow = origWings[j];
+        const newWingRef = push(ref(database, WINGS_PATH));
         const newWingId = newWingRef.key;
         wingIdMap[ow.wingId] = newWingId;
-
-        const newWing = {
+        
+        const childCreationTime = new Date(baseTime + (i * 1000) + j + 1).toISOString();
+        batchUpdates[`${WINGS_PATH}/${newWingId}`] = {
           ...ow,
           wingId: newWingId,
           floorId: newFloorId,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          createdAt: childCreationTime,
+          updatedAt: childCreationTime,
           createdBy: userId || '',
         };
-        await set(newWingRef, newWing);
       }
 
-      // Clone Spaces
-      for (const os of origSpaces) {
-        const newSpaceRef = push(spacesRef);
+      for (let k = 0; k < origSpaces.length; k++) {
+        const os = origSpaces[k];
+        const newSpaceRef = push(ref(database, SPACES_PATH));
         const newSpaceId = newSpaceRef.key;
         spaceIdMap[os.spaceId] = newSpaceId;
-
-        const newSpace = {
+        
+        const childCreationTime = new Date(baseTime + (i * 1000) + k + 10).toISOString();
+        batchUpdates[`${SPACES_PATH}/${newSpaceId}`] = {
           ...os,
           spaceId: newSpaceId,
           floorId: newFloorId,
-          wingId: wingIdMap[os.wingId] || os.wingId, // Link to the newly cloned wing!
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          wingId: wingIdMap[os.wingId] || os.wingId,
+          createdAt: childCreationTime,
+          updatedAt: childCreationTime,
           createdBy: userId || '',
         };
-        await set(newSpaceRef, newSpace);
       }
 
-      // Clone Activities
       for (const oa of origActs) {
-        const newActRef = push(activitiesRef);
+        const newActRef = push(ref(database, 'activities'));
         const newActId = newActRef.key;
         
-        const newAct = {
+        batchUpdates[`activities/${newActId}`] = {
           ...oa,
           activityId: newActId,
           floorId: newFloorId,
           wingId: oa.wingId ? wingIdMap[oa.wingId] : null,
           spaceId: oa.spaceId ? spaceIdMap[oa.spaceId] : null,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          createdAt: creationTime,
+          updatedAt: creationTime,
           createdBy: userId || '',
-          // Reset progress for the fresh clone
           progress: 0,
           automaticProgress: 0,
           status: 'not_started',
@@ -276,10 +276,11 @@ export async function bulkCloneFloor(floorId, cloneConfig, userId) {
           manualProgress: null,
           progressSource: 'automatic'
         };
-        await set(newActRef, newAct);
       }
     }
 
+    // 🚀 Execute single atomic network request
+    await update(ref(database), batchUpdates);
     return createdFloors;
   } catch (error) {
     console.error('Error in deep floor cloning:', error);
@@ -321,15 +322,15 @@ export async function createWing(wingData, floorId, buildingId, projectId, userI
 
 export async function getWingsByFloor(floorId) {
   try {
-    const wingsRef = ref(database, WINGS_PATH);
-    const snapshot = await get(wingsRef);
+    // 🔥 OPTIMIZED SERVER-SIDE QUERY
+    const q = query(ref(database, WINGS_PATH), orderByChild('floorId'), equalTo(floorId));
+    const snapshot = await get(q);
     
     if (snapshot.exists()) {
       const wings = snapshot.val();
       return Object.keys(wings)
         .map(key => ({ ...wings[key] }))
-        .filter(wing => wing.floorId === floorId)
-        .sort((a, b) => a.name.localeCompare(b.name));
+        .sort(sortByCreationAndName);
     }
     return [];
   } catch (error) {
@@ -398,7 +399,7 @@ export async function createSpace(spaceData, wingId, floorId, buildingId, projec
 }
 
 /**
- * 🔥 SMART BULK CLONE: Generates names automatically using prefix + startNumber
+ * 🔥 SMART BULK CLONE: Uses ATOMIC BATCH UPDATES
  */
 export async function bulkCloneSpace(spaceId, cloneConfig, userId) {
   try {
@@ -411,16 +412,17 @@ export async function bulkCloneSpace(spaceId, cloneConfig, userId) {
     const actsSnap = await get(activitiesQuery);
     const originalActivities = actsSnap.exists() ? Object.values(actsSnap.val()) : [];
 
-    const spacesRef = ref(database, SPACES_PATH);
-    const activitiesRef = ref(database, 'activities');
     const createdSpaces = [];
+    const baseTime = Date.now();
+    const batchUpdates = {}; // Accumulates all writes
 
     for (let i = 0; i < count; i++) {
-      const newSpaceRef = push(spacesRef);
+      const newSpaceRef = push(ref(database, SPACES_PATH));
       const newSpaceId = newSpaceRef.key;
       
       const currentNumber = startNumber + i;
       const newSpaceName = `${prefix}${currentNumber}`;
+      const creationTime = new Date(baseTime + (i * 10)).toISOString();
 
       const space = {
         spaceId: newSpaceId,
@@ -433,25 +435,24 @@ export async function bulkCloneSpace(spaceId, cloneConfig, userId) {
         type: originalSpace.type,
         status: originalSpace.status,
         description: originalSpace.description,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdAt: creationTime,
+        updatedAt: creationTime,
         createdBy: userId || '',
       };
 
-      await set(newSpaceRef, space);
+      batchUpdates[`${SPACES_PATH}/${newSpaceId}`] = space;
       createdSpaces.push(space);
 
-      // Clone activities
       for (const origAct of originalActivities) {
-        const newActRef = push(activitiesRef);
+        const newActRef = push(ref(database, 'activities'));
         const newActId = newActRef.key;
         
-        const newAct = {
+        batchUpdates[`activities/${newActId}`] = {
           ...origAct,
           activityId: newActId,
           spaceId: newSpaceId,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          createdAt: creationTime,
+          updatedAt: creationTime,
           createdBy: userId || '',
           progress: 0,
           automaticProgress: 0,
@@ -464,10 +465,11 @@ export async function bulkCloneSpace(spaceId, cloneConfig, userId) {
           manualProgress: null,
           progressSource: 'automatic'
         };
-        await set(newActRef, newAct);
       }
     }
 
+    // 🚀 Execute single atomic network request
+    await update(ref(database), batchUpdates);
     return createdSpaces;
   } catch (error) {
     console.error('Error bulk cloning space:', error);
@@ -477,15 +479,15 @@ export async function bulkCloneSpace(spaceId, cloneConfig, userId) {
 
 export async function getSpacesByWing(wingId) {
   try {
-    const spacesRef = ref(database, SPACES_PATH);
-    const snapshot = await get(spacesRef);
+    // 🔥 OPTIMIZED SERVER-SIDE QUERY
+    const q = query(ref(database, SPACES_PATH), orderByChild('wingId'), equalTo(wingId));
+    const snapshot = await get(q);
     
     if (snapshot.exists()) {
       const spaces = snapshot.val();
       return Object.keys(spaces)
         .map(key => ({ ...spaces[key] }))
-        .filter(space => space.wingId === wingId)
-        .sort((a, b) => a.name.localeCompare(b.name));
+        .sort(sortByCreationAndName);
     }
     return [];
   } catch (error) {
@@ -496,15 +498,15 @@ export async function getSpacesByWing(wingId) {
 
 export async function getSpacesByFloor(floorId) {
   try {
-    const spacesRef = ref(database, SPACES_PATH);
-    const snapshot = await get(spacesRef);
+    // 🔥 OPTIMIZED SERVER-SIDE QUERY
+    const q = query(ref(database, SPACES_PATH), orderByChild('floorId'), equalTo(floorId));
+    const snapshot = await get(q);
     
     if (snapshot.exists()) {
       const spaces = snapshot.val();
       return Object.keys(spaces)
         .map(key => ({ ...spaces[key] }))
-        .filter(space => space.floorId === floorId)
-        .sort((a, b) => a.name.localeCompare(b.name));
+        .sort(sortByCreationAndName);
     }
     return [];
   } catch (error) {
@@ -515,15 +517,15 @@ export async function getSpacesByFloor(floorId) {
 
 export async function getSpacesByBuilding(buildingId) {
   try {
-    const spacesRef = ref(database, SPACES_PATH);
-    const snapshot = await get(spacesRef);
+    // 🔥 OPTIMIZED SERVER-SIDE QUERY
+    const q = query(ref(database, SPACES_PATH), orderByChild('buildingId'), equalTo(buildingId));
+    const snapshot = await get(q);
     
     if (snapshot.exists()) {
       const spaces = snapshot.val();
       return Object.keys(spaces)
         .map(key => ({ ...spaces[key] }))
-        .filter(space => space.buildingId === buildingId)
-        .sort((a, b) => a.name.localeCompare(b.name));
+        .sort(sortByCreationAndName);
     }
     return [];
   } catch (error) {

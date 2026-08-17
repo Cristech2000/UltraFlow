@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { database } from '../lib/firebase'; // 🔥 NEW: Direct DB access
+import { ref, get, query, orderByChild, equalTo } from 'firebase/database'; // 🔥 NEW: Server-side queries
 import {
   ArrowLeft,
   Home,
@@ -21,8 +23,8 @@ import {
   Edit2,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-import { getFloor, getWingsByFloor, deleteFloor, createWing, getSpacesByWing } from '../services/spaceService';
-import { getActivitiesByScope, ACTIVITY_SCOPES, createActivity, updateActivityProgress, updateActivityStatus, deleteActivity } from '../services/activityService';
+import { getFloor, deleteFloor, createWing } from '../services/spaceService';
+import { ACTIVITY_SCOPES, createActivity, updateActivityProgress, updateActivityStatus, deleteActivity } from '../services/activityService';
 import { getBuilding } from '../services/spaceService';
 import { getProject } from '../services/projectService';
 import { calculateLevelProgress, calculateWingProgress, calculateSpaceProgress } from '../utils/progressUtils';
@@ -33,6 +35,13 @@ import ProgressBar from '../components/common/ProgressBar';
 import Input from '../components/common/Input';
 import { STATUS_DISPLAY_NAMES, getStatusColor } from '../constants/status';
 import ProjectGuard from '../components/common/ProjectGuard';
+
+// Identical smart sorter for our in-memory data
+const naturalSort = (a, b) => {
+  const timeDiff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+  if (timeDiff !== 0) return timeDiff;
+  return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+};
 
 function LevelDetail() {
   const { projectId, buildingId, floorId } = useParams();
@@ -66,50 +75,66 @@ function LevelDetail() {
     setLoading(true);
     setError('');
     try {
-      const floorData = await getFloor(floorId);
+      // 🔥 BULK PARALLEL FETCH: Get everything inside this floor in 6 lightning-fast requests
+      const [
+        floorData,
+        buildingData,
+        projectData,
+        wingsSnap,
+        spacesSnap,
+        actsSnap
+      ] = await Promise.all([
+        getFloor(floorId),
+        getBuilding(buildingId),
+        getProject(projectId),
+        get(query(ref(database, 'wings'), orderByChild('floorId'), equalTo(floorId))),
+        get(query(ref(database, 'spaces'), orderByChild('floorId'), equalTo(floorId))),
+        get(query(ref(database, 'activities'), orderByChild('floorId'), equalTo(floorId)))
+      ]);
+
       if (!floorData) {
         setError('Level not found');
         setLoading(false);
         return;
       }
+
       setFloor(floorData);
-
-      const buildingData = await getBuilding(buildingId);
       if (buildingData) setBuilding(buildingData);
-
-      const projectData = await getProject(projectId);
       if (projectData) setProject(projectData);
 
-      const wingsData = await getWingsByFloor(floorId);
-      
-      const wingsWithProgress = await Promise.all(
-        wingsData.map(async (wing) => {
-          const spaces = await getSpacesByWing(wing.wingId);
-          const spacesWithProgress = await Promise.all(
-            spaces.map(async (space) => {
-              const spaceActs = await getActivitiesByScope(projectId, ACTIVITY_SCOPES.SPACE, space.spaceId);
-              const spaceProgress = calculateSpaceProgress(spaceActs);
-              return { ...space, progress: spaceProgress };
-            })
-          );
-          const wingActs = await getActivitiesByScope(projectId, ACTIVITY_SCOPES.WING, wing.wingId);
-          const wingProgress = calculateWingProgress(spacesWithProgress, wingActs);
-          return { 
-            ...wing, 
-            progress: wingProgress,
-            spaces: spacesWithProgress,
-            wingActivities: wingActs
-          };
-        })
-      );
+      const allWings = wingsSnap.exists() ? Object.values(wingsSnap.val()) : [];
+      const allSpaces = spacesSnap.exists() ? Object.values(spacesSnap.val()) : [];
+      const allActs = actsSnap.exists() ? Object.values(actsSnap.val()) : [];
+
+      // 🔥 IN-MEMORY AGGREGATION: Process thousands of items instantly locally
+      const sortedWings = allWings.sort(naturalSort);
+
+      const wingsWithProgress = sortedWings.map(wing => {
+        const wingSpaces = allSpaces
+          .filter(s => s.wingId === wing.wingId)
+          .sort(naturalSort);
+
+        const spacesWithProgress = wingSpaces.map(space => {
+          const spaceActs = allActs.filter(a => a.spaceId === space.spaceId);
+          const spaceProgress = calculateSpaceProgress(spaceActs);
+          return { ...space, progress: spaceProgress };
+        });
+
+        const wingActs = allActs.filter(a => a.wingId === wing.wingId && !a.spaceId);
+        const wingProgress = calculateWingProgress(spacesWithProgress, wingActs);
+
+        return { 
+          ...wing, 
+          progress: wingProgress,
+          spaces: spacesWithProgress,
+          wingActivities: wingActs
+        };
+      });
+
       setWings(wingsWithProgress);
 
-      const activitiesData = await getActivitiesByScope(
-        projectId,
-        ACTIVITY_SCOPES.LEVEL,
-        floorId
-      );
-      setActivities(activitiesData);
+      const floorActivitiesData = allActs.filter(a => a.floorId === floorId && !a.wingId);
+      setActivities(floorActivitiesData);
       
     } catch (err) {
       console.error('Error loading level:', err);
@@ -211,7 +236,7 @@ function LevelDetail() {
   };
 
   const handleDeleteActivity = async (activityId) => {
-    if (!confirm('Are you sure you want to delete this activity?')) return;
+    if (!window.confirm('Are you sure you want to delete this activity?')) return;
     try {
       await deleteActivity(activityId);
       await loadData();
@@ -610,7 +635,7 @@ function ActivityItem({
                 {activity.progress || 0}%
               </span>
               {canEdit && (
-                <button onClick={onEdit} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" title="Update Progress">
+                <button onClick={onEdit} className="p-1 rounded-lg hover:bg-gray-100 dark:bg-gray-800 transition-colors" title="Update Progress">
                   <Edit2 size={14} className="text-gray-400 hover:text-primary-500" />
                 </button>
               )}

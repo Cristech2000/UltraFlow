@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { database } from '../lib/firebase'; // 🔥 NEW: Direct DB access
+import { ref, get, query, orderByChild, equalTo } from 'firebase/database'; // 🔥 NEW: Server-side queries
 import {
   ArrowLeft,
   Layers,
@@ -23,9 +25,8 @@ import {
   Copy
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-// Notice we imported deleteSpace here!
-import { getWing, getSpacesByWing, deleteWing, createSpace, bulkCloneSpace, SPACE_TYPES, deleteSpace } from '../services/spaceService';
-import { getActivitiesByScope, ACTIVITY_SCOPES, createActivity, updateActivityProgress, updateActivityStatus, deleteActivity } from '../services/activityService';
+import { getWing, deleteWing, createSpace, bulkCloneSpace, SPACE_TYPES, deleteSpace } from '../services/spaceService';
+import { ACTIVITY_SCOPES, createActivity, updateActivityProgress, updateActivityStatus, deleteActivity } from '../services/activityService';
 import { getFloor, getBuilding } from '../services/spaceService';
 import { getProject } from '../services/projectService';
 import { calculateWingProgress, calculateSpaceProgress } from '../utils/progressUtils';
@@ -36,6 +37,13 @@ import ProgressBar from '../components/common/ProgressBar';
 import Input from '../components/common/Input';
 import { STATUS_DISPLAY_NAMES, getStatusColor } from '../constants/status';
 import ProjectGuard from '../components/common/ProjectGuard';
+
+// 🔥 Identical smart sorter for our in-memory data
+const naturalSort = (a, b) => {
+  const timeDiff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+  if (timeDiff !== 0) return timeDiff;
+  return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+};
 
 function WingDetail() {
   const { projectId, buildingId, floorId, wingId } = useParams();
@@ -87,40 +95,50 @@ function WingDetail() {
     setLoading(true);
     setError('');
     try {
-      const wingData = await getWing(wingId);
+      // 🔥 1. BULK PARALLEL FETCH: Get the Wing, Spaces, and all Activities inside this wing in 6 parallel requests
+      const [
+        wingData,
+        floorData,
+        buildingData,
+        projectData,
+        spacesSnap,
+        actsSnap
+      ] = await Promise.all([
+        getWing(wingId),
+        getFloor(floorId),
+        getBuilding(buildingId),
+        getProject(projectId),
+        get(query(ref(database, 'spaces'), orderByChild('wingId'), equalTo(wingId))),
+        get(query(ref(database, 'activities'), orderByChild('wingId'), equalTo(wingId)))
+      ]);
+
       if (!wingData) {
         setError('Wing not found');
         setLoading(false);
         return;
       }
+
       setWing(wingData);
-
-      const floorData = await getFloor(floorId);
       if (floorData) setFloor(floorData);
-
-      const buildingData = await getBuilding(buildingId);
       if (buildingData) setBuilding(buildingData);
-
-      const projectData = await getProject(projectId);
       if (projectData) setProject(projectData);
 
-      const spacesData = await getSpacesByWing(wingId);
-      
-      const spacesWithProgress = await Promise.all(
-        spacesData.map(async (space) => {
-          const spaceActs = await getActivitiesByScope(projectId, ACTIVITY_SCOPES.SPACE, space.spaceId);
-          const spaceProgress = calculateSpaceProgress(spaceActs);
-          return { ...space, progress: spaceProgress };
-        })
-      );
+      const allSpaces = spacesSnap.exists() ? Object.values(spacesSnap.val()) : [];
+      const allActs = actsSnap.exists() ? Object.values(actsSnap.val()) : [];
+
+      // 🔥 2. IN-MEMORY AGGREGATION: Process instantly without N+1 requests
+      const sortedSpaces = allSpaces.sort(naturalSort);
+
+      const spacesWithProgress = sortedSpaces.map(space => {
+        const spaceActs = allActs.filter(a => a.spaceId === space.spaceId);
+        const spaceProgress = calculateSpaceProgress(spaceActs);
+        return { ...space, progress: spaceProgress };
+      });
+
       setSpaces(spacesWithProgress);
 
-      const activitiesData = await getActivitiesByScope(
-        projectId,
-        ACTIVITY_SCOPES.WING,
-        wingId
-      );
-      setActivities(activitiesData);
+      const wingActivitiesData = allActs.filter(a => a.wingId === wingId && !a.spaceId);
+      setActivities(wingActivitiesData);
       
     } catch (err) {
       console.error('Error loading wing:', err);
@@ -149,7 +167,6 @@ function WingDetail() {
     }
   };
 
-  // 🔥 NEW: Space Deletion Logic
   const handleDeleteSpace = async () => {
     if (!spaceToDelete) return;
     setIsDeletingSpace(true);
@@ -808,7 +825,7 @@ function ActivityItem({
                 {activity.progress || 0}%
               </span>
               {canEdit && (
-                <button onClick={onEdit} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" title="Update Progress">
+                <button onClick={onEdit} className="p-1 rounded-lg hover:bg-gray-100 dark:bg-gray-800 transition-colors" title="Update Progress">
                   <Edit2 size={14} className="text-gray-400 hover:text-primary-500" />
                 </button>
               )}

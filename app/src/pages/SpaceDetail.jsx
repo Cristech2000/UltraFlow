@@ -22,8 +22,8 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-import { getSpace, deleteSpace } from '../services/spaceService';
-import { getBuilding, getFloor, getWing } from '../services/spaceService';
+import { getSpace, deleteSpace, getBuilding, getFloor, getWing } from '../services/spaceService';
+import { getProject } from '../services/projectService'; // 🔥 NEW: Added project service
 import {
   getActivitiesBySpace,
   createActivity,
@@ -42,7 +42,8 @@ import Input from '../components/common/Input';
 import ProjectGuard from '../components/common/ProjectGuard';
 
 function SpaceDetail() {
-  const { spaceId } = useParams();
+  // 🔥 EXTRACT ALL IDs FROM URL IMMEDIATELY
+  const { projectId, buildingId, floorId, wingId, spaceId } = useParams();
   const navigate = useNavigate();
   const { user, userRole } = useAuth();
   const [space, setSpace] = useState(null);
@@ -59,10 +60,10 @@ function SpaceDetail() {
     buildingName: '',
     floorName: '',
     wingName: '',
-    projectId: '',
-    buildingId: '',
-    floorId: '',
-    wingId: '',
+    projectId: projectId,
+    buildingId: buildingId,
+    floorId: floorId,
+    wingId: wingId,
   });
   const [newActivity, setNewActivity] = useState({
     name: '',
@@ -81,44 +82,42 @@ function SpaceDetail() {
     setLoading(true);
     setError('');
     try {
-      const spaceData = await getSpace(spaceId);
+      // 🔥 FIRE ALL REQUESTS AT THE EXACT SAME TIME IN PARALLEL
+      const [
+        spaceData,
+        projectData,
+        buildingData,
+        floorData,
+        wingData,
+        activitiesData
+      ] = await Promise.all([
+        getSpace(spaceId),
+        getProject(projectId),
+        getBuilding(buildingId),
+        getFloor(floorId),
+        getWing(wingId),
+        getActivitiesBySpace(spaceId)
+      ]);
+
       if (!spaceData) {
         setError('Space not found');
         setLoading(false);
         return;
       }
+
       setSpace(spaceData);
-
-      const parentData = {
-        projectName: '',
-        buildingName: '',
-        floorName: '',
-        wingName: '',
-        projectId: spaceData.projectId || '',
-        buildingId: spaceData.buildingId || '',
-        floorId: spaceData.floorId || '',
-        wingId: spaceData.wingId || '',
-      };
-
-      if (spaceData.buildingId) {
-        const building = await getBuilding(spaceData.buildingId);
-        parentData.buildingName = building?.name || spaceData.buildingId;
-      }
+      setParentNames({
+        projectName: projectData?.name || 'Project',
+        buildingName: buildingData?.name || buildingId,
+        floorName: floorData?.name || floorId,
+        wingName: wingData?.name || wingId,
+        projectId: projectId,
+        buildingId: buildingId,
+        floorId: floorId,
+        wingId: wingId,
+      });
+      setActivities(activitiesData || []);
       
-      if (spaceData.floorId) {
-        const floor = await getFloor(spaceData.floorId);
-        parentData.floorName = floor?.name || spaceData.floorId;
-      }
-      
-      if (spaceData.wingId) {
-        const wing = await getWing(spaceData.wingId);
-        parentData.wingName = wing?.name || spaceData.wingId;
-      }
-
-      setParentNames(parentData);
-
-      const activitiesData = await getActivitiesBySpace(spaceId);
-      setActivities(activitiesData);
     } catch (err) {
       console.error('Error loading space:', err);
       setError('Failed to load space. Please try again.');
@@ -137,7 +136,7 @@ function SpaceDetail() {
     setDeleting(true);
     try {
       await deleteSpace(spaceId);
-      navigate(`/projects/${space?.projectId}`);
+      navigate(`/projects/${projectId}/buildings/${buildingId}/floors/${floorId}/wings/${wingId}`);
     } catch (err) {
       setError('Failed to delete space');
     } finally {
@@ -237,7 +236,7 @@ function SpaceDetail() {
   };
 
   const handleDeleteActivity = async (activityId) => {
-    if (!confirm('Are you sure you want to delete this activity?')) return;
+    if (!window.confirm('Are you sure you want to delete this activity?')) return;
     try {
       await deleteActivity(activityId);
       await loadData();
@@ -267,7 +266,7 @@ function SpaceDetail() {
           <Button
             variant="primary"
             className="mt-4"
-            onClick={() => navigate(`/projects/${space?.projectId}`)}
+            onClick={() => navigate(`/projects/${projectId}`)}
           >
             Back to Project
           </Button>
@@ -280,33 +279,32 @@ function SpaceDetail() {
     const items = [];
     items.push({ name: 'Dashboard', path: '/', isLink: true });
     
-    const projectName = parentNames.projectName || 'Project';
     items.push({ 
-      name: projectName, 
-      path: `/projects/${space.projectId}`, 
+      name: parentNames.projectName, 
+      path: `/projects/${projectId}`, 
       isLink: true 
     });
     
-    if (parentNames.buildingId) {
+    if (buildingId) {
       items.push({ 
-        name: parentNames.buildingName || 'Building', 
-        path: `/projects/${space.projectId}/buildings/${parentNames.buildingId}`, 
+        name: parentNames.buildingName, 
+        path: `/projects/${projectId}/buildings/${buildingId}`, 
         isLink: true 
       });
     }
     
-    if (parentNames.floorId) {
+    if (floorId) {
       items.push({ 
-        name: parentNames.floorName || 'Level', 
-        path: `/projects/${space.projectId}/buildings/${parentNames.buildingId}/floors/${parentNames.floorId}`, 
+        name: parentNames.floorName, 
+        path: `/projects/${projectId}/buildings/${buildingId}/floors/${floorId}`, 
         isLink: true 
       });
     }
     
-    if (parentNames.wingId) {
+    if (wingId) {
       items.push({ 
-        name: parentNames.wingName || 'Wing', 
-        path: `/projects/${space.projectId}/buildings/${parentNames.buildingId}/floors/${parentNames.floorId}/wings/${parentNames.wingId}`, 
+        name: parentNames.wingName, 
+        path: `/projects/${projectId}/buildings/${buildingId}/floors/${floorId}/wings/${wingId}`, 
         isLink: true 
       });
     }
@@ -323,7 +321,7 @@ function SpaceDetail() {
   const breadcrumbItems = buildBreadcrumb();
 
   return (
-    <ProjectGuard projectId={space?.projectId}>
+    <ProjectGuard projectId={projectId}>
       <div className="space-y-6">
         {/* Breadcrumb */}
         <nav className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 flex-wrap">
@@ -393,7 +391,7 @@ function SpaceDetail() {
           <div className="flex gap-2">
             <Button
               variant="ghost"
-              onClick={() => navigate(`/projects/${space.projectId}`)}
+              onClick={() => navigate(`/projects/${projectId}/buildings/${buildingId}/floors/${floorId}/wings/${wingId}`)}
               icon={<ArrowLeft size={16} />}
             >
               Back

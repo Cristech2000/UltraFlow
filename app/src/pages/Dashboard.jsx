@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { database } from '../lib/firebase'; // 🔥 NEW: Direct DB access
+import { ref, get, query, orderByChild, equalTo } from 'firebase/database'; // 🔥 NEW: Server-side queries
 import {
   FolderKanban,
   Activity,
@@ -16,95 +18,11 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { getProjectsByOrganization } from '../services/projectService';
-import { getActivitiesByProject } from '../services/activityService';
-import { getTasksByProject, getTasksForUser } from '../services/taskService';
-import { getBuildingsByProject, getFloorsByBuilding, getWingsByFloor, getSpacesByWing } from '../services/spaceService';
+import { getTasksForUser } from '../services/taskService';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import Badge from '../components/common/Badge';
 import ProgressBar from '../components/common/ProgressBar';
-
-// ============================================================================
-// ULTRA-PRECISE CUMULATIVE PROGRESS AGGREGATOR
-// ============================================================================
-async function calculateAccurateProgress(projectId, acts) {
-  const bldgs = await getBuildingsByProject(projectId);
-  const buildingProgress = {};
-  
-  let projTotal = 0;
-  let bldgCount = 0;
-
-  for (const b of bldgs) {
-    const floors = await getFloorsByBuilding(b.buildingId);
-    let bldgItemsSum = 0;
-    let bldgItemsCount = 0;
-
-    for (const f of floors) {
-      const wings = await getWingsByFloor(f.floorId);
-      let floorItemsSum = 0;
-      let floorItemsCount = 0;
-
-      for (const w of wings) {
-        const spaces = await getSpacesByWing(w.wingId);
-        let wingItemsSum = 0;
-        let wingItemsCount = 0;
-
-        for (const s of spaces) {
-          const spaceActs = acts.filter(a => a.spaceId === s.spaceId);
-          let spaceProg = 0;
-          if (spaceActs.length > 0) {
-            spaceProg = spaceActs.reduce((sum, a) => sum + Number(a.progress || 0), 0) / spaceActs.length;
-          }
-          wingItemsSum += spaceProg;
-          wingItemsCount++;
-        }
-
-        const wingActs = acts.filter(a => a.wingId === w.wingId && !a.spaceId);
-        for (const wa of wingActs) {
-          wingItemsSum += Number(wa.progress || 0);
-          wingItemsCount++;
-        }
-
-        const finalWingProg = wingItemsCount > 0 ? (wingItemsSum / wingItemsCount) : 0;
-        floorItemsSum += finalWingProg;
-        floorItemsCount++;
-      }
-
-      const floorActs = acts.filter(a => a.floorId === f.floorId && !a.wingId);
-      for (const fa of floorActs) {
-        floorItemsSum += Number(fa.progress || 0);
-        floorItemsCount++;
-      }
-
-      const finalFloorProg = floorItemsCount > 0 ? (floorItemsSum / floorItemsCount) : 0;
-      bldgItemsSum += finalFloorProg;
-      bldgItemsCount++;
-    }
-
-    const bldgActs = acts.filter(a => a.buildingId === b.buildingId && !a.floorId);
-    for (const ba of bldgActs) {
-      bldgItemsSum += Number(ba.progress || 0);
-      bldgItemsCount++;
-    }
-
-    const finalBldgProg = bldgItemsCount > 0 ? (bldgItemsSum / bldgItemsCount) : 0;
-    
-    buildingProgress[b.buildingId] = Math.round(finalBldgProg);
-    
-    projTotal += finalBldgProg;
-    bldgCount++;
-  }
-
-  const projActs = acts.filter(a => a.projectId === projectId && !a.buildingId);
-  for (const pa of projActs) {
-    projTotal += Number(pa.progress || 0);
-    bldgCount++;
-  }
-
-  const projectProgress = bldgCount > 0 ? Math.round(projTotal / bldgCount) : 0;
-
-  return { projectProgress, buildingProgress };
-}
 
 function Dashboard() {
   const { user, userProfile, userRole, projectIds } = useAuth();
@@ -115,13 +33,8 @@ function Dashboard() {
   const [selectedProjectId, setSelectedProjectId] = useState('');
   
   const [projectStats, setProjectStats] = useState({});
-  const [activeProjectData, setActiveProjectData] = useState({
-    buildings: [],
-    activities: [],
-    tasks: [],
-    buildingProgress: {}
-  });
-
+  // 🔥 NEW: We store ALL project data in memory so switching projects is instant
+  const [allProjectsData, setAllProjectsData] = useState({});
   const [myTasks, setMyTasks] = useState([]);
 
   const isGlobalRole = ['hr', 'director'].includes(userRole);
@@ -153,19 +66,134 @@ function Dashboard() {
           }
 
           const stats = {};
+          const cache = {};
+
+          // 🔥 MASSIVE PARALLEL FETCH: Load everything for all accessible projects instantly
           await Promise.all(accessibleProjects.map(async (proj) => {
-            const acts = await getActivitiesByProject(proj.projectId);
-            const { projectProgress, buildingProgress } = await calculateAccurateProgress(proj.projectId, acts);
+            const pid = proj.projectId;
             
-            stats[proj.projectId] = {
+            const [bSnap, fSnap, wSnap, sSnap, aSnap, tSnap] = await Promise.all([
+              get(query(ref(database, 'buildings'), orderByChild('projectId'), equalTo(pid))),
+              get(query(ref(database, 'floors'), orderByChild('projectId'), equalTo(pid))),
+              get(query(ref(database, 'wings'), orderByChild('projectId'), equalTo(pid))),
+              get(query(ref(database, 'spaces'), orderByChild('projectId'), equalTo(pid))),
+              get(query(ref(database, 'activities'), orderByChild('projectId'), equalTo(pid))),
+              get(query(ref(database, 'tasks'), orderByChild('projectId'), equalTo(pid)))
+            ]);
+
+            const bldgs = bSnap.exists() ? Object.values(bSnap.val()) : [];
+            const floors = fSnap.exists() ? Object.values(fSnap.val()) : [];
+            const wings = wSnap.exists() ? Object.values(wSnap.val()) : [];
+            const spaces = sSnap.exists() ? Object.values(sSnap.val()) : [];
+            const acts = aSnap.exists() ? Object.values(aSnap.val()) : [];
+            const tasks = tSnap.exists() ? Object.values(tSnap.val()) : [];
+
+            // 🔥 HASH MAPS: Pre-sort everything into buckets so JavaScript doesn't do millions of calculations
+            const spacesByWing = {};
+            spaces.forEach(s => { if(!spacesByWing[s.wingId]) spacesByWing[s.wingId] = []; spacesByWing[s.wingId].push(s); });
+
+            const wingsByFloor = {};
+            wings.forEach(w => { if(!wingsByFloor[w.floorId]) wingsByFloor[w.floorId] = []; wingsByFloor[w.floorId].push(w); });
+
+            const floorsByBldg = {};
+            floors.forEach(f => { if(!floorsByBldg[f.buildingId]) floorsByBldg[f.buildingId] = []; floorsByBldg[f.buildingId].push(f); });
+
+            const actsBySpace = {};
+            const actsByWing = {};
+            const actsByFloor = {};
+            const actsByBldg = {};
+            const actsByProj = [];
+
+            acts.forEach(a => {
+              if (a.spaceId) { if (!actsBySpace[a.spaceId]) actsBySpace[a.spaceId] = []; actsBySpace[a.spaceId].push(a); }
+              else if (a.wingId) { if (!actsByWing[a.wingId]) actsByWing[a.wingId] = []; actsByWing[a.wingId].push(a); }
+              else if (a.floorId) { if (!actsByFloor[a.floorId]) actsByFloor[a.floorId] = []; actsByFloor[a.floorId].push(a); }
+              else if (a.buildingId) { if (!actsByBldg[a.buildingId]) actsByBldg[a.buildingId] = []; actsByBldg[a.buildingId].push(a); }
+              else if (a.projectId) { actsByProj.push(a); }
+            });
+
+            // 🔥 BOTTOM-UP MATH: Instant aggregate calculation using the buckets
+            const buildingProgress = {};
+            let projTotal = 0;
+            let projBldgCount = 0;
+
+            bldgs.forEach(b => {
+              let bldgTotal = 0;
+              let bldgItemCount = 0;
+              const bFloors = floorsByBldg[b.buildingId] || [];
+              
+              bFloors.forEach(f => {
+                let floorTotal = 0;
+                let floorItemCount = 0;
+                const fWings = wingsByFloor[f.floorId] || [];
+                
+                fWings.forEach(w => {
+                  let wingTotal = 0;
+                  let wingItemCount = 0;
+                  const wSpaces = spacesByWing[w.wingId] || [];
+                  
+                  wSpaces.forEach(s => {
+                    const sActs = actsBySpace[s.spaceId] || [];
+                    let sProg = 0;
+                    if (sActs.length > 0) {
+                      sProg = sActs.reduce((sum, a) => sum + Number(a.progress || 0), 0) / sActs.length;
+                    }
+                    wingTotal += sProg;
+                    wingItemCount++;
+                  });
+
+                  const wActs = actsByWing[w.wingId] || [];
+                  wActs.forEach(wa => { wingTotal += Number(wa.progress || 0); wingItemCount++; });
+
+                  const finalWingProg = wingItemCount > 0 ? (wingTotal / wingItemCount) : 0;
+                  floorTotal += finalWingProg;
+                  floorItemCount++;
+                });
+
+                const fActs = actsByFloor[f.floorId] || [];
+                fActs.forEach(fa => { floorTotal += Number(fa.progress || 0); floorItemCount++; });
+
+                const finalFloorProg = floorItemCount > 0 ? (floorTotal / floorItemCount) : 0;
+                bldgTotal += finalFloorProg;
+                bldgItemCount++;
+              });
+
+              const bActs = actsByBldg[b.buildingId] || [];
+              bActs.forEach(ba => { bldgTotal += Number(ba.progress || 0); bldgItemCount++; });
+
+              const finalBldgProg = bldgItemCount > 0 ? (bldgTotal / bldgItemCount) : 0;
+              buildingProgress[b.buildingId] = Math.round(finalBldgProg);
+
+              projTotal += finalBldgProg;
+              projBldgCount++;
+            });
+
+            actsByProj.forEach(pa => {
+              projTotal += Number(pa.progress || 0);
+              projBldgCount++;
+            });
+
+            const projectProgress = projBldgCount > 0 ? Math.round(projTotal / projBldgCount) : 0;
+
+            stats[pid] = {
               progress: projectProgress,
-              buildingProgress: buildingProgress,
+              buildingProgress,
               activityCount: acts.length,
               completedCount: acts.filter(a => a.status === 'completed').length
             };
+
+            cache[pid] = {
+              buildings: bldgs,
+              activities: acts,
+              tasks: tasks,
+              buildingProgress
+            };
           }));
 
-          if (isMounted) setProjectStats(stats);
+          if (isMounted) {
+            setProjectStats(stats);
+            setAllProjectsData(cache);
+          }
         }
       } catch (err) {
         console.error('Error loading dashboard data:', err);
@@ -177,42 +205,6 @@ function Dashboard() {
     loadDashboardData();
     return () => { isMounted = false; };
   }, [userProfile, userRole, projectIds, isGlobalRole, isElectrician, user?.uid]);
-
-  useEffect(() => {
-    let isMounted = true;
-    const loadActiveProject = async () => {
-      if (!selectedProjectId || isElectrician) return;
-      
-      try {
-        const [bldgs, acts, tsks] = await Promise.all([
-          getBuildingsByProject(selectedProjectId),
-          getActivitiesByProject(selectedProjectId),
-          getTasksByProject(selectedProjectId)
-        ]);
-
-        if (!isMounted) return;
-
-        let bldgProg = projectStats[selectedProjectId]?.buildingProgress || {};
-
-        if (Object.keys(bldgProg).length === 0 && bldgs.length > 0) {
-          const { buildingProgress } = await calculateAccurateProgress(selectedProjectId, acts);
-          bldgProg = buildingProgress;
-        }
-
-        setActiveProjectData({
-          buildings: bldgs || [],
-          activities: acts || [],
-          tasks: tsks || [],
-          buildingProgress: bldgProg
-        });
-      } catch (err) {
-        console.error('Error loading active project details:', err);
-      }
-    };
-
-    loadActiveProject();
-    return () => { isMounted = false; };
-  }, [selectedProjectId, isElectrician, projectStats]);
 
   if (loading) {
     return (
@@ -301,6 +293,9 @@ function Dashboard() {
   // ============================================================================
   
   const activeProj = projects.find(p => p.projectId === selectedProjectId);
+  
+  // 🔥 Pull data instantly from the pre-calculated memory cache!
+  const activeProjectData = allProjectsData[selectedProjectId] || { buildings: [], activities: [], tasks: [], buildingProgress: {} };
   const { buildings, activities, tasks, buildingProgress } = activeProjectData;
 
   const pendingTasks = tasks.filter(t => t.status === 'submitted');
@@ -351,7 +346,10 @@ function Dashboard() {
           <Card>
             <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 font-medium">Global Pending Approvals</p>
             <p className="text-xl md:text-2xl font-bold text-yellow-600 dark:text-yellow-400 mt-1">
-              {projects.reduce((acc, p) => acc + tasks.filter(t => t.projectId === p.projectId && t.status === 'submitted').length, 0)}
+              {projects.reduce((acc, p) => {
+                const projTasks = allProjectsData[p.projectId]?.tasks || [];
+                return acc + projTasks.filter(t => t.status === 'submitted').length;
+              }, 0)}
             </p>
           </Card>
           <Card>
