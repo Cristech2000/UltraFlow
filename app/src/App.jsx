@@ -1,5 +1,6 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+// 🔥 CHANGED: BrowserRouter to HashRouter
+import { HashRouter, Routes, Route } from 'react-router-dom';
 import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/common/ProtectedRoute';
@@ -21,7 +22,7 @@ import SpaceDetail from './pages/SpaceDetail';
 import Timeline from './pages/Timeline';
 import Reports from './pages/Reports';
 import Assessments from './pages/Assessments';
-import AssessmentDetail from './pages/AssessmentDetail'; // 🔥 ADDED THIS IMPORT
+import AssessmentDetail from './pages/AssessmentDetail';
 import Issues from './pages/Issues';
 import Drawings from './pages/Drawings';
 import Analytics from './pages/Analytics';
@@ -36,7 +37,8 @@ function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <BrowserRouter>
+        {/* 🔥 CHANGED: HashRouter wraps the app now */}
+        <HashRouter>
           <Routes>
             {/* Public Routes - Authentication */}
             <Route path="/login" element={<AuthLayout />}>
@@ -72,7 +74,6 @@ function App() {
               <Route path="timeline" element={<Timeline />} />
               <Route path="reports" element={<Reports />} />
               
-              {/* 🔥 ADDED BOTH ASSESSMENT ROUTES HERE */}
               <Route path="assessments" element={<Assessments />} />
               <Route path="assessments/:assessmentId" element={<AssessmentDetail />} />
               
@@ -96,7 +97,7 @@ function App() {
               />
             </Route>
           </Routes>
-        </BrowserRouter>
+        </HashRouter>
       </AuthProvider>
     </ThemeProvider>
   );
