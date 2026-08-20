@@ -7,6 +7,9 @@ import Button from '../components/common/Button';
 import Input from '../components/common/Input';
 import { useAuth } from '../hooks/useAuth';
 
+// 🔥 IMPORT YOUR LOGO HERE
+import pineCoreLogo from '../assets/pinecore-logo.png';
+
 function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -118,10 +121,16 @@ function Login() {
         </p>
       </div>
 
-      <div className="mt-4 text-center">
-        <p className="text-xs text-gray-500 dark:text-gray-400">
-          Powered by <span className="font-semibold">UltraFlow</span> — Construction Intelligence Platform
-        </p>
+      {/* 🔥 THE LARGER PINE CORE BRANDING FOOTER */}
+      <div className="mt-8 pt-6 border-t border-gray-100 dark:border-gray-800 flex flex-col items-center justify-center gap-3">
+        <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-widest font-semibold">
+          Powered By
+        </span>
+        <img 
+          src={pineCoreLogo} 
+          alt="Pine Core Technologies" 
+          className="h-[80px] w-auto object-contain opacity-90 hover:opacity-100 transition-opacity" 
+        />
       </div>
     </>
   );
