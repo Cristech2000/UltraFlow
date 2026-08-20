@@ -3,9 +3,8 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  // 🚨 CHANGE THIS to match your exact GitHub repository name! 
-  // Example: if your repo is called 'bsceee', make it '/bsceee/'
-  base: '/YOUR_REPO_NAME/', 
+  // 🔥 MUST BE EXACTLY THIS. NO DOTS, NO /APP/. 
+  base: '/UltraFlow/', 
   server: {
     port: 3000,
     open: true,

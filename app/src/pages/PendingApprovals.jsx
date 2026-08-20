@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
+import { database } from '../lib/firebase'; // 🔥 ADDED THIS
+import { ref, get } from 'firebase/database'; // 🔥 ADDED THIS
 import { 
   getTasksByProject, 
   getTask,
@@ -11,7 +13,7 @@ import {
 import { getProjectsByOrganization } from '../services/projectService';
 import { getActivity } from '../services/activityService';
 import { getUserProfile } from '../services/userService';
-import { getSpace } from '../services/spaceService';
+// 🔥 REMOVED getSpace IMPORT
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import Badge from '../components/common/Badge';
@@ -81,24 +83,57 @@ function PendingApprovals() {
       const tasks = await getTasksByProject(projectId);
       const pending = tasks.filter(t => t.status === 'submitted');
       const approved = tasks.filter(t => t.status === 'approved' || t.status === 'rejected');
-      
+
       // Enrich pending tasks with space details
       const enrichedPending = await Promise.all(
         pending.map(async (task) => {
           const activity = await getActivity(task.activityId);
           const submittedByName = await getUserName(task.updatedBy);
           const location = await getTaskLocation(task);
-          
+
           // Get space details for all spaces in this task
           const spaceIds = task.scopeIds || [];
           const spaceDetails = await Promise.all(
             spaceIds.map(async (sid) => {
-              const space = await getSpace(sid);
+              
+              // 🔥 CASCADING LOOKUP LOGIC STARTS HERE
+              let locationName = sid;
+              let locationCode = '';
+              
+              try {
+                const spaceSnap = await get(ref(database, `spaces/${sid}`));
+                if (spaceSnap.exists()) {
+                  locationName = spaceSnap.val().name || sid;
+                  locationCode = spaceSnap.val().code || '';
+                } else {
+                  const wingSnap = await get(ref(database, `wings/${sid}`));
+                  if (wingSnap.exists()) {
+                    locationName = wingSnap.val().name || sid;
+                    locationCode = wingSnap.val().code || '';
+                  } else {
+                    const floorSnap = await get(ref(database, `floors/${sid}`));
+                    if (floorSnap.exists()) {
+                      locationName = floorSnap.val().name || sid;
+                      locationCode = floorSnap.val().code || '';
+                    } else {
+                      const buildingSnap = await get(ref(database, `buildings/${sid}`));
+                      if (buildingSnap.exists()) {
+                        locationName = buildingSnap.val().name || sid;
+                        locationCode = buildingSnap.val().code || '';
+                      }
+                    }
+                  }
+                }
+              } catch (err) {
+                console.warn('Could not fetch location details for', sid);
+              }
+              // 🔥 CASCADING LOOKUP LOGIC ENDS HERE
+
               const progress = task.spaceProgress?.[sid] || {};
               return {
                 spaceId: sid,
-                name: space?.name || sid,
-                code: space?.code || '',
+                name: locationName,
+                code: locationCode,
                 approved: progress.approved || 0,
                 submitted: progress.submitted || 0,
                 rejected: progress.rejected || false,
@@ -107,7 +142,7 @@ function PendingApprovals() {
               };
             })
           );
-          
+
           return { ...task, activity, submittedByName, location, spaceDetails };
         })
       );
@@ -122,7 +157,7 @@ function PendingApprovals() {
         })
       );
       setApprovedTasks(enrichedApproved);
-      
+
       // Initialize selection state for each task
       const selectionState = {};
       enrichedPending.forEach(task => {
@@ -132,7 +167,7 @@ function PendingApprovals() {
         });
       });
       setSelectedSpaces(prev => ({ ...prev, ...selectionState }));
-      
+
     } catch (err) {
       console.error('Error loading tasks:', err);
       setError('Failed to load tasks');
@@ -199,19 +234,19 @@ function PendingApprovals() {
 
   const handleApproveSelected = async (taskId, spaceIds) => {
     if (spaceIds.length === 0) {
-      setError('Please select at least one space to approve');
+      setError('Please select at least one location to approve');
       return;
     }
     setProcessing(taskId);
     setError('');
     try {
       await approveTaskSpaces(taskId, spaceIds, user?.uid, reviewNotes);
-      setSuccess(`✅ ${spaceIds.length} space(s) approved successfully!`);
+      setSuccess(`✅ ${spaceIds.length} location(s) approved successfully!`);
       setReviewNotes('');
       await loadTasks(selectedProject?.projectId);
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
-      setError(err.message || 'Failed to approve spaces');
+      setError(err.message || 'Failed to approve locations');
     } finally {
       setProcessing(null);
     }
@@ -219,7 +254,7 @@ function PendingApprovals() {
 
   const handleRejectSelected = async (taskId, spaceIds) => {
     if (spaceIds.length === 0) {
-      setError('Please select at least one space to reject');
+      setError('Please select at least one location to reject');
       return;
     }
     if (!reviewNotes) {
@@ -230,12 +265,12 @@ function PendingApprovals() {
     setError('');
     try {
       await rejectTaskSpaces(taskId, spaceIds, user?.uid, reviewNotes);
-      setSuccess(`❌ ${spaceIds.length} space(s) rejected`);
+      setSuccess(`❌ ${spaceIds.length} location(s) rejected`);
       setReviewNotes('');
       await loadTasks(selectedProject?.projectId);
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
-      setError(err.message || 'Failed to reject spaces');
+      setError(err.message || 'Failed to reject locations');
     } finally {
       setProcessing(null);
     }
@@ -269,7 +304,7 @@ function PendingApprovals() {
       <div>
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Pending Approvals</h1>
         <p className="text-gray-500 dark:text-gray-400 mt-1">
-          Review and approve/reject progress submissions with granular space control
+          Review and approve/reject progress submissions with granular location control
         </p>
       </div>
 
@@ -331,7 +366,7 @@ function PendingApprovals() {
                     const selectedCount = spaceIds.filter(sid => selectedSpaces[task.taskId]?.[sid]).length;
                     const hasSelected = selectedCount > 0;
                     const allSelected = spaceIds.length > 0 && spaceIds.every(sid => selectedSpaces[task.taskId]?.[sid]);
-                    
+
                     return (
                       <Card key={task.taskId} className="overflow-hidden">
                         <div className="space-y-4">
@@ -351,16 +386,16 @@ function PendingApprovals() {
                               </div>
                               <div className="flex items-center gap-2">
                                 <span className="text-sm text-gray-500 dark:text-gray-400">
-                                  {task.spaceDetails?.filter(s => s.submitted > 0).length || 0} / {task.spaceDetails?.length || 0} spaces
+                                  {task.spaceDetails?.filter(s => s.submitted > 0).length || 0} / {task.spaceDetails?.length || 0} locations
                                 </span>
                                 {isExpanded ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
                               </div>
                             </div>
-                            
+
                             <div className="text-sm text-gray-500 dark:text-gray-400">
                               Team: {task.teamName} • Submitted by: {task.submittedByName || task.updatedBy || 'Unknown'}
                             </div>
-                            
+
                             {task.location && (
                               <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400 dark:text-gray-500">
                                 {task.location.projectName && (
@@ -374,7 +409,7 @@ function PendingApprovals() {
                                 {task.location.wingName && <span>• {task.location.wingName}</span>}
                               </div>
                             )}
-                            
+
                             <div className="flex items-center gap-4">
                               <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
                                 Overall Progress: {task.submittedProgress || 0}%
@@ -404,7 +439,7 @@ function PendingApprovals() {
                                     className="w-4 h-4 text-primary-500 rounded focus:ring-primary-500"
                                   />
                                   <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                                    Select All Spaces
+                                    Select All Locations
                                   </span>
                                 </div>
                                 <span className="text-xs text-gray-400 dark:text-gray-500">
@@ -418,7 +453,7 @@ function PendingApprovals() {
                                   const isSelected = selectedSpaces[task.taskId]?.[space.spaceId];
                                   const isRejected = space.rejected;
                                   const hasSubmitted = space.submitted > 0;
-                                  
+
                                   return (
                                     <div
                                       key={space.spaceId}
@@ -471,7 +506,7 @@ function PendingApprovals() {
                               {/* Review Notes */}
                               <div className="mt-4">
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                  Review Notes {!hasSelected && '(Select spaces first)'}
+                                  Review Notes {!hasSelected && '(Select locations first)'}
                                 </label>
                                 <textarea
                                   placeholder="Add review notes (required for rejection)..."

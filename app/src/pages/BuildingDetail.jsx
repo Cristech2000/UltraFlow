@@ -67,15 +67,17 @@ function BuildingDetail() {
   const [allSpaces, setAllSpaces] = useState([]);
   
   const [bulkScope, setBulkScope] = useState('building'); 
-  const [bulkLocationId, setBulkLocationId] = useState(buildingId);
+  const [bulkLocationIds, setBulkLocationIds] = useState([buildingId]); // Array for multi-select
+  const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
+  
   const [bulkSearchTerm, setBulkSearchTerm] = useState('');
-  const [groupRepetitive, setGroupRepetitive] = useState(true); // 🔥 ADDED: Toggle state for Grouping
+  const [groupRepetitive, setGroupRepetitive] = useState(true); 
   
   const [selectedActIds, setSelectedActIds] = useState([]);
   const [bulkProgress, setBulkProgress] = useState('');
   const [bulkStatus, setBulkStatus] = useState('');
   const [isBulkUpdating, setIsBulkUpdating] = useState(false);
-  const [activityContext, setActivityContext] = useState({ scope: 'building', id: buildingId });
+  const [activityContext, setActivityContext] = useState({ scope: 'building', ids: [buildingId] });
 
   const [showFloorForm, setShowFloorForm] = useState(false);
   const [floorForm, setFloorForm] = useState({ name: '', levelNumber: 0, code: '', status: 'active' });
@@ -95,32 +97,28 @@ function BuildingDetail() {
   const canEdit = ['director', 'engineer', 'supervisor'].includes(userRole);
   const canDelete = ['director'].includes(userRole);
 
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (!e.target.closest('.multi-select-container')) setIsLocationDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const loadData = async () => {
     setLoading(true);
     setError('');
     try {
       const [
-        buildingData,
-        projectData,
-        floorsData,
-        wingsSnap,
-        spacesSnap,
-        actsSnap
+        buildingData, projectData, floorsData, wingsSnap, spacesSnap, actsSnap
       ] = await Promise.all([
-        getBuilding(buildingId),
-        getProject(projectId),
-        getFloorsByBuilding(buildingId),
+        getBuilding(buildingId), getProject(projectId), getFloorsByBuilding(buildingId),
         get(query(ref(database, 'wings'), orderByChild('buildingId'), equalTo(buildingId))),
         get(query(ref(database, 'spaces'), orderByChild('buildingId'), equalTo(buildingId))),
         get(query(ref(database, 'activities'), orderByChild('buildingId'), equalTo(buildingId)))
       ]);
 
-      if (!buildingData) {
-        setError('Building not found');
-        setLoading(false);
-        return;
-      }
-
+      if (!buildingData) { setError('Building not found'); setLoading(false); return; }
       setBuilding(buildingData);
       if (projectData) setProject(projectData);
 
@@ -144,11 +142,7 @@ function BuildingDetail() {
         spacesByWing[s.wingId].push(s);
       });
 
-      const actsBySpace = {};
-      const actsByWing = {};
-      const actsByFloor = {};
-      const buildingActs = [];
-
+      const actsBySpace = {}, actsByWing = {}, actsByFloor = {}, buildingActs = [];
       allActsList.forEach(a => {
         if (a.spaceId) {
           if (!actsBySpace[a.spaceId]) actsBySpace[a.spaceId] = [];
@@ -166,7 +160,6 @@ function BuildingDetail() {
 
       const floorsWithProgress = floorsData.map(floor => {
         const floorWings = (wingsByFloor[floor.floorId] || []).sort(naturalSort);
-
         const wingsWithProgress = floorWings.map(wing => {
           const wingSpaces = (spacesByWing[wing.wingId] || []).sort(naturalSort);
           const spacesWithProgress = wingSpaces.map(space => {
@@ -176,7 +169,6 @@ function BuildingDetail() {
           const wingActs = actsByWing[wing.wingId] || [];
           return { ...wing, progress: calculateWingProgress(spacesWithProgress, wingActs), spaces: spacesWithProgress, wingActivities: wingActs };
         });
-
         const floorActs = actsByFloor[floor.floorId] || [];
         return { ...floor, progress: calculateLevelProgress(wingsWithProgress, floorActs), wings: wingsWithProgress, floorActivities: floorActs };
       });
@@ -191,26 +183,37 @@ function BuildingDetail() {
     }
   };
 
-  useEffect(() => {
-    if (buildingId) loadData();
-  }, [buildingId]);
+  useEffect(() => { if (buildingId) loadData(); }, [buildingId]);
 
   // ==========================================
-  // 🔥 MASS MANAGER: Intelligent Grouping Logic
+  // 🔥 MASS MANAGER LOGIC
   // ==========================================
+  const locationOptions = useMemo(() => {
+    if (bulkScope === 'level') return floors.map(f => ({ id: f.floorId, label: f.name }));
+    if (bulkScope === 'wing') return allWings.map(w => {
+      const f = floors.find(fl => fl.floorId === w.floorId);
+      return { id: w.wingId, label: `${f ? `${f.name} - ` : ''}${w.name}` };
+    });
+    if (bulkScope === 'space') return allSpaces.map(s => {
+      const w = allWings.find(wg => wg.wingId === s.wingId);
+      const f = floors.find(fl => fl.floorId === s.floorId);
+      return { id: s.spaceId, label: `${f ? `${f.name} ` : ''}${w ? `(${w.name}) ` : ''}- ${s.name}` };
+    });
+    return [];
+  }, [bulkScope, floors, allWings, allSpaces]);
+
   let rawBulkActs = [];
-  
   if (bulkScope === 'building') {
     rawBulkActs = allBuildingActivities;
   } else if (bulkScope === 'level') {
-    const levelWings = allWings.filter(w => w.floorId === bulkLocationId).map(w => w.wingId);
-    const levelSpaces = allSpaces.filter(s => s.floorId === bulkLocationId).map(s => s.spaceId);
-    rawBulkActs = allBuildingActivities.filter(a => a.floorId === bulkLocationId || levelWings.includes(a.wingId) || levelSpaces.includes(a.spaceId));
+    const levelWings = allWings.filter(w => bulkLocationIds.includes(w.floorId)).map(w => w.wingId);
+    const levelSpaces = allSpaces.filter(s => bulkLocationIds.includes(s.floorId)).map(s => s.spaceId);
+    rawBulkActs = allBuildingActivities.filter(a => bulkLocationIds.includes(a.floorId) || levelWings.includes(a.wingId) || levelSpaces.includes(a.spaceId));
   } else if (bulkScope === 'wing') {
-    const wingSpaces = allSpaces.filter(s => s.wingId === bulkLocationId).map(s => s.spaceId);
-    rawBulkActs = allBuildingActivities.filter(a => a.wingId === bulkLocationId || wingSpaces.includes(a.spaceId));
+    const wingSpaces = allSpaces.filter(s => bulkLocationIds.includes(s.wingId)).map(s => s.spaceId);
+    rawBulkActs = allBuildingActivities.filter(a => bulkLocationIds.includes(a.wingId) || wingSpaces.includes(a.spaceId));
   } else if (bulkScope === 'space') {
-    rawBulkActs = allBuildingActivities.filter(a => a.spaceId === bulkLocationId);
+    rawBulkActs = allBuildingActivities.filter(a => bulkLocationIds.includes(a.spaceId));
   }
 
   const filteredBulkActivities = rawBulkActs.filter(a => {
@@ -218,14 +221,12 @@ function BuildingDetail() {
     return a.name.toLowerCase().includes(bulkSearchTerm.toLowerCase()) || (a.code && a.code.toLowerCase().includes(bulkSearchTerm.toLowerCase()));
   }).sort((a,b) => (a.order || 0) - (b.order || 0));
 
-  // 🔥 THIS IS THE MAGIC: Grouping the activities by name
   const displayActivities = useMemo(() => {
     if (!groupRepetitive) {
       return filteredBulkActivities.map(act => ({
         isGroup: false, id: act.activityId, name: act.name, ids: [act.activityId], act: act
       }));
     }
-
     const groups = {};
     filteredBulkActivities.forEach(act => {
       const key = (act.name || '').toLowerCase().trim();
@@ -233,14 +234,8 @@ function BuildingDetail() {
       groups[key].ids.push(act.activityId);
       groups[key].acts.push(act);
     });
-
     return Object.values(groups).map(g => ({
-      isGroup: true,
-      id: g.name,
-      name: g.name,
-      ids: g.ids,
-      acts: g.acts,
-      count: g.ids.length,
+      isGroup: true, id: g.name, name: g.name, ids: g.ids, acts: g.acts, count: g.ids.length,
       progress: Math.round(g.acts.reduce((sum, a) => sum + (Number(a.progress) || 0), 0) / g.acts.length)
     })).sort((a, b) => a.name.localeCompare(b.name));
   }, [filteredBulkActivities, groupRepetitive]);
@@ -279,20 +274,14 @@ function BuildingDetail() {
         updates[`activities/${id}/updatedAt`] = new Date().toISOString();
         updates[`activities/${id}/updatedBy`] = user?.uid || '';
       });
-      
       if (Object.keys(updates).length > 0) {
         await update(ref(database), updates);
         await loadData();
-        setSelectedActIds([]);
-        setBulkProgress('');
-        setBulkStatus('');
+        setSelectedActIds([]); setBulkProgress(''); setBulkStatus('');
       }
     } catch (err) {
-      console.error("Bulk update failed", err);
-      alert('Failed to apply bulk updates');
-    } finally {
-      setIsBulkUpdating(false);
-    }
+      console.error("Bulk update failed", err); alert('Failed to apply bulk updates');
+    } finally { setIsBulkUpdating(false); }
   };
 
   const handleBulkDelete = async () => {
@@ -306,74 +295,67 @@ function BuildingDetail() {
       await loadData();
       setSelectedActIds([]);
     } catch (err) {
-      console.error("Bulk delete failed", err);
-      alert('Failed to delete activities');
-    } finally {
-      setIsBulkUpdating(false);
-    }
+      console.error("Bulk delete failed", err); alert('Failed to delete activities');
+    } finally { setIsBulkUpdating(false); }
   };
 
-  const openAddActivityModal = (scope, id) => {
-    setActivityContext({ scope, id });
+  const openAddActivityModal = () => {
+    setActivityContext({ scope: bulkScope, ids: bulkLocationIds });
     setShowActivityForm(true);
   };
 
   const handleCreateActivity = async () => {
-    if (!activityForm.name.trim()) {
-      setActivityFormError('Activity name is required');
-      return;
-    }
-    setSubmittingActivity(true);
-    setActivityFormError('');
+    if (!activityForm.name.trim()) { setActivityFormError('Activity name is required'); return; }
+    setSubmittingActivity(true); setActivityFormError('');
     try {
       let targets = []; 
       
-      let baseFloorId = null, baseWingId = null, baseSpaceId = null;
-      if (activityContext.scope === 'level') baseFloorId = activityContext.id;
-      else if (activityContext.scope === 'wing') { 
-        baseWingId = activityContext.id; 
-        const w = allWings.find(x => x.wingId === baseWingId);
-        if (w) baseFloorId = w.floorId;
-      }
-      else if (activityContext.scope === 'space') { 
-        baseSpaceId = activityContext.id; 
-        const s = allSpaces.find(x => x.spaceId === baseSpaceId);
-        if (s) { baseWingId = s.wingId; baseFloorId = s.floorId; }
-      }
+      activityContext.ids.forEach(locId => {
+        let baseFloorId = null, baseWingId = null, baseSpaceId = null;
+        if (activityContext.scope === 'level') baseFloorId = locId;
+        else if (activityContext.scope === 'wing') { 
+          baseWingId = locId; 
+          const w = allWings.find(x => x.wingId === baseWingId);
+          if (w) baseFloorId = w.floorId;
+        }
+        else if (activityContext.scope === 'space') { 
+          baseSpaceId = locId; 
+          const s = allSpaces.find(x => x.spaceId === baseSpaceId);
+          if (s) { baseWingId = s.wingId; baseFloorId = s.floorId; }
+        }
 
-      if (activityForm.targetChildren === 'none') {
-        const targetScope = ACTIVITY_SCOPES[activityContext.scope.toUpperCase()];
-        targets.push({ floorId: baseFloorId, wingId: baseWingId, spaceId: baseSpaceId, scope: targetScope });
-      } 
-      else if (activityForm.targetChildren === 'spaces') {
-        let childSpaces = [];
-        if (activityContext.scope === 'level') childSpaces = allSpaces.filter(s => s.floorId === activityContext.id);
-        else if (activityContext.scope === 'wing') childSpaces = allSpaces.filter(s => s.wingId === activityContext.id);
-        else if (activityContext.scope === 'building') childSpaces = allSpaces;
-        
-        childSpaces.forEach(s => targets.push({ floorId: s.floorId, wingId: s.wingId, spaceId: s.spaceId, scope: ACTIVITY_SCOPES.SPACE }));
-      }
-      else if (activityForm.targetChildren === 'wings') {
-        let childWings = [];
-        if (activityContext.scope === 'level') childWings = allWings.filter(w => w.floorId === activityContext.id);
-        else if (activityContext.scope === 'building') childWings = allWings;
+        if (activityForm.targetChildren === 'none') {
+          const targetScope = ACTIVITY_SCOPES[activityContext.scope.toUpperCase()];
+          targets.push({ floorId: baseFloorId, wingId: baseWingId, spaceId: baseSpaceId, scope: targetScope });
+        } 
+        else if (activityForm.targetChildren === 'spaces') {
+          let childSpaces = [];
+          if (activityContext.scope === 'level') childSpaces = allSpaces.filter(s => s.floorId === locId);
+          else if (activityContext.scope === 'wing') childSpaces = allSpaces.filter(s => s.wingId === locId);
+          else if (activityContext.scope === 'building') childSpaces = allSpaces;
+          childSpaces.forEach(s => targets.push({ floorId: s.floorId, wingId: s.wingId, spaceId: s.spaceId, scope: ACTIVITY_SCOPES.SPACE }));
+        }
+        else if (activityForm.targetChildren === 'wings') {
+          let childWings = [];
+          if (activityContext.scope === 'level') childWings = allWings.filter(w => w.floorId === locId);
+          else if (activityContext.scope === 'building') childWings = allWings;
+          childWings.forEach(w => targets.push({ floorId: w.floorId, wingId: w.wingId, spaceId: null, scope: ACTIVITY_SCOPES.WING }));
+        }
+        else if (activityForm.targetChildren === 'levels') {
+          floors.forEach(f => targets.push({ floorId: f.floorId, wingId: null, spaceId: null, scope: ACTIVITY_SCOPES.LEVEL }));
+        }
+      });
 
-        childWings.forEach(w => targets.push({ floorId: w.floorId, wingId: w.wingId, spaceId: null, scope: ACTIVITY_SCOPES.WING }));
-      }
-      else if (activityForm.targetChildren === 'levels') {
-        floors.forEach(f => targets.push({ floorId: f.floorId, wingId: null, spaceId: null, scope: ACTIVITY_SCOPES.LEVEL }));
-      }
+      const uniqueTargets = Array.from(new Set(targets.map(t => JSON.stringify(t)))).map(t => JSON.parse(t));
 
-      if (targets.length === 0) {
+      if (uniqueTargets.length === 0) {
         setActivityFormError('No locations found to assign this activity to.');
-        setSubmittingActivity(false);
-        return;
+        setSubmittingActivity(false); return;
       }
 
       const updates = {};
       const baseTime = Date.now();
-      
-      targets.forEach((t, i) => {
+      uniqueTargets.forEach((t, i) => {
         const actId = push(ref(database, 'activities')).key;
         updates[`activities/${actId}`] = {
           activityId: actId, projectId, buildingId, floorId: t.floorId || null, wingId: t.wingId || null, spaceId: t.spaceId || null,
@@ -384,25 +366,22 @@ function BuildingDetail() {
       });
 
       await update(ref(database), updates);
-      
       setShowActivityForm(false);
       setActivityForm({ name: '', code: '', description: '', targetChildren: 'none' });
       await loadData();
     } catch (err) {
       setActivityFormError(err.message || 'Failed to create activity');
-    } finally {
-      setSubmittingActivity(false);
-    }
+    } finally { setSubmittingActivity(false); }
   };
 
-  const handleDelete = async () => { /* ... existing ... */
+  const handleDelete = async () => { 
     setDeleting(true);
     try { await deleteBuilding(buildingId); navigate(`/projects/${projectId}`); } 
     catch (err) { setError('Failed to delete building'); } 
     finally { setDeleting(false); setShowDeleteModal(false); }
   };
 
-  const handleCreateFloor = async () => { /* ... existing ... */
+  const handleCreateFloor = async () => { 
     if (!floorForm.name.trim()) { setFloorFormError('Level name is required'); return; }
     setSubmittingFloor(true); setFloorFormError('');
     try { await createFloor(floorForm, buildingId, projectId, user?.uid); setShowFloorForm(false); setFloorForm({ name: '', levelNumber: 0, code: '', status: 'active' }); await loadData(); } 
@@ -410,35 +389,19 @@ function BuildingDetail() {
     finally { setSubmittingFloor(false); }
   };
 
-  const openCloneModal = (floor) => { /* ... existing ... */
+  const openCloneModal = (floor) => { 
     setCloningFloor(floor);
     const match = floor.name.match(/^(.*?)(\d+)$/);
     setCloneConfig({ count: 1, prefix: match ? match[1] : floor.name + ' ', startNumber: match ? parseInt(match[2], 10) + 1 : 1 });
     setShowCloneModal(true);
   };
 
-  const handleCloneFloor = async () => { /* ... existing ... */
+  const handleCloneFloor = async () => { 
     if (cloneConfig.count < 1 || cloneConfig.count > 100) { setFloorFormError('Enter a number between 1 and 100'); return; }
     setIsCloning(true); setFloorFormError('');
     try { await bulkCloneFloor(cloningFloor.floorId, cloneConfig, user?.uid); setShowCloneModal(false); setCloningFloor(null); await loadData(); } 
     catch (err) { setFloorFormError(err.message || 'Failed to clone level'); }
     finally { setIsCloning(false); }
-  };
-
-  const handleUpdateProgress = async (activityId, progress) => {
-    try { await updateActivityProgress(activityId, progress, user?.uid); await loadData(); setEditingActivity(null); }
-    catch (err) { setError('Failed to update progress'); }
-  };
-
-  const handleUpdateStatus = async (activityId, status) => {
-    try { await updateActivityStatus(activityId, status, user?.uid); await loadData(); }
-    catch (err) { setError('Failed to update status'); }
-  };
-
-  const handleDeleteActivity = async (activityId) => {
-    if (!window.confirm('Are you sure you want to delete this activity?')) return;
-    try { await deleteActivity(activityId); await loadData(); }
-    catch (err) { setError('Failed to delete activity'); }
   };
 
   const buildingProgress = calculateBuildingProgress(floors, activities);
@@ -464,23 +427,12 @@ function BuildingDetail() {
     return map[status] || map['not_started'];
   };
 
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case 'completed': return <CheckCircle size={16} className="text-green-500" />;
-      case 'in_progress': return <PlayCircle size={16} className="text-blue-500" />;
-      case 'on_hold': return <PauseCircle size={16} className="text-yellow-500" />;
-      case 'blocked': return <XCircle size={16} className="text-red-500" />;
-      default: return <Clock size={16} className="text-gray-400" />;
-    }
-  };
-
   if (loading) return <div className="min-h-[60vh] flex items-center justify-center"><div className="w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full animate-spin"></div></div>;
   if (error || !building) return <div className="min-h-[60vh] flex items-center justify-center text-center"><Building2 size={48} className="text-red-500 mx-auto" /><p className="mt-4">{error || 'Building not found'}</p><Button variant="primary" className="mt-4" onClick={() => navigate(`/projects/${projectId}`)}>Back to Project</Button></div>;
 
   return (
     <ProjectGuard projectId={projectId}>
       <div className="space-y-6">
-        {/* Header Breadcrumbs */}
         <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
           <Link to="/projects" className="hover:text-primary-500 transition-colors">Projects</Link> <ChevronRight size={14} />
           <Link to={`/projects/${projectId}`} className="hover:text-primary-500 transition-colors">{project?.name || 'Project'}</Link> <ChevronRight size={14} />
@@ -504,16 +456,12 @@ function BuildingDetail() {
           </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="ghost" onClick={() => navigate(`/projects/${projectId}`)} icon={<ArrowLeft size={16} />}>Back</Button>
-            {canEdit && <Button variant="accent" size="sm" icon={<FileText size={16} />} onClick={() => openAddActivityModal('building', buildingId)}>Add Activity</Button>}
+            {canEdit && <Button variant="accent" size="sm" icon={<FileText size={16} />} onClick={openAddActivityModal}>Add Activity</Button>}
             {canDelete && <Button variant="danger" size="sm" icon={<Trash2 size={16} />} onClick={() => setShowDeleteModal(true)}>Delete</Button>}
           </div>
         </div>
 
-        {building.description && (
-          <Card>
-            <p className="text-gray-600 dark:text-gray-300">{building.description}</p>
-          </Card>
-        )}
+        {building.description && <Card><p className="text-gray-600 dark:text-gray-300">{building.description}</p></Card>}
 
         <Card>
           <div className="flex items-center justify-between mb-2">
@@ -527,9 +475,7 @@ function BuildingDetail() {
           <ProgressBar value={buildingProgress} />
         </Card>
 
-        {/* ==================================================== */}
-        {/* 🔥 THE NEW MASS ACTIVITY MANAGER                     */}
-        {/* ==================================================== */}
+        {/* 🔥 THE NEW MASS ACTIVITY MANAGER */}
         {canEdit && (
           <Card className="border-primary-200 dark:border-primary-900/50">
             <div className="flex items-center gap-2 mb-4 border-b border-gray-100 dark:border-gray-800 pb-3">
@@ -545,7 +491,7 @@ function BuildingDetail() {
                   value={bulkScope}
                   onChange={(e) => {
                     setBulkScope(e.target.value);
-                    setBulkLocationId(e.target.value === 'building' ? buildingId : '');
+                    setBulkLocationIds(e.target.value === 'building' ? [buildingId] : []);
                     setSelectedActIds([]);
                   }}
                 >
@@ -557,25 +503,50 @@ function BuildingDetail() {
               </div>
 
               {bulkScope !== 'building' && (
-                <div className="flex-[1.5]">
-                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Target Location</label>
-                  <select 
-                    className="w-full text-sm px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                    value={bulkLocationId}
-                    onChange={(e) => { setBulkLocationId(e.target.value); setSelectedActIds([]); }}
+                <div className="flex-[1.5] relative multi-select-container">
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Target Locations</label>
+                  <div 
+                    className="w-full text-sm px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white cursor-pointer flex justify-between items-center"
+                    onClick={() => setIsLocationDropdownOpen(!isLocationDropdownOpen)}
                   >
-                    <option value="">-- Select {bulkScope} --</option>
-                    {bulkScope === 'level' && floors.map(f => <option key={f.floorId} value={f.floorId}>{f.name}</option>)}
-                    {bulkScope === 'wing' && allWings.map(w => {
-                      const f = floors.find(fl => fl.floorId === w.floorId);
-                      return <option key={w.wingId} value={w.wingId}>{f ? `${f.name} - ` : ''}{w.name}</option>;
-                    })}
-                    {bulkScope === 'space' && allSpaces.map(s => {
-                      const w = allWings.find(wg => wg.wingId === s.wingId);
-                      const f = floors.find(fl => fl.floorId === s.floorId);
-                      return <option key={s.spaceId} value={s.spaceId}>{f ? `${f.name} ` : ''}{w ? `(${w.name}) ` : ''}- {s.name}</option>;
-                    })}
-                  </select>
+                    <span className="truncate">
+                      {bulkLocationIds.length === 0 ? `-- Select ${bulkScope}s --` : `${bulkLocationIds.length} ${bulkScope}(s) selected`}
+                    </span>
+                    <ChevronRight size={16} className={`transform transition-transform text-gray-400 ${isLocationDropdownOpen ? 'rotate-90' : ''}`} />
+                  </div>
+                  
+                  {isLocationDropdownOpen && (
+                    <div className="absolute z-50 mt-1 w-full max-h-60 overflow-y-auto bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl">
+                      <div className="p-2 border-b border-gray-100 dark:border-gray-800 flex justify-between bg-gray-50 dark:bg-gray-800/50 sticky top-0">
+                        <button 
+                          className="text-xs text-primary-600 hover:text-primary-700 dark:text-primary-400 font-medium"
+                          onClick={() => {
+                            if (bulkLocationIds.length === locationOptions.length) setBulkLocationIds([]);
+                            else setBulkLocationIds(locationOptions.map(opt => opt.id));
+                            setSelectedActIds([]);
+                          }}
+                        >
+                          {bulkLocationIds.length === locationOptions.length ? 'Deselect All' : 'Select All'}
+                        </button>
+                      </div>
+                      <div className="p-1">
+                        {locationOptions.map(opt => (
+                          <label key={opt.id} className="flex items-center gap-2 p-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded cursor-pointer">
+                            <input 
+                              type="checkbox" 
+                              className="w-4 h-4 text-primary-600 rounded border-gray-300 focus:ring-primary-500"
+                              checked={bulkLocationIds.includes(opt.id)}
+                              onChange={() => {
+                                setBulkLocationIds(prev => prev.includes(opt.id) ? prev.filter(x => x !== opt.id) : [...prev, opt.id]);
+                                setSelectedActIds([]);
+                              }}
+                            />
+                            <span className="text-sm text-gray-700 dark:text-gray-300">{opt.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -594,8 +565,8 @@ function BuildingDetail() {
               <div className="flex flex-col justify-end">
                 <Button 
                   variant="primary" size="sm" 
-                  disabled={!bulkLocationId} 
-                  onClick={() => openAddActivityModal(bulkScope, bulkLocationId)}
+                  disabled={bulkLocationIds.length === 0} 
+                  onClick={openAddActivityModal}
                   icon={<Plus size={16} />}
                 >
                   New Activity
@@ -603,7 +574,6 @@ function BuildingDetail() {
               </div>
             </div>
 
-            {/* 🔥 NEW: Group Repetitive Toggle */}
             <div className="mb-3 px-1">
               <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer w-max hover:text-primary-600 transition-colors">
                 <input 
@@ -617,7 +587,7 @@ function BuildingDetail() {
               </label>
             </div>
 
-            {bulkLocationId && (
+            {bulkLocationIds.length > 0 && (
               <div className="space-y-3 animate-in fade-in slide-in-from-top-2">
                 <div className="flex flex-wrap items-center gap-3 p-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm">
                   <div className="flex items-center gap-2 pr-4 border-r border-gray-200 dark:border-gray-700">
@@ -811,7 +781,7 @@ function BuildingDetail() {
           </div>
         )}
 
-        {/* 🔥 ADD ACTIVITY FORM (Upgraded for Mass Creation) */}
+        {/* 🔥 ADD ACTIVITY FORM */}
         {showActivityForm && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-md w-full p-6">
@@ -822,6 +792,10 @@ function BuildingDetail() {
               <div className="space-y-4">
                 {activityFormError && <div className="p-3 bg-red-50 text-red-600 rounded-lg text-sm">{activityFormError}</div>}
                 
+                <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-100 dark:border-blue-800 text-sm text-blue-800 dark:text-blue-300">
+                  You have selected <strong>{activityContext.ids.length} {activityContext.scope}(s)</strong>.
+                </div>
+
                 <Input label="Activity Name" placeholder="e.g., CU Installation" value={activityForm.name} onChange={(e) => setActivityForm({ ...activityForm, name: e.target.value })} required />
                 <Input label="Activity Code" placeholder="e.g., ELEC-01" value={activityForm.code} onChange={(e) => setActivityForm({ ...activityForm, code: e.target.value })} />
                 <Input label="Description" placeholder="Brief description" value={activityForm.description} onChange={(e) => setActivityForm({ ...activityForm, description: e.target.value })} />
@@ -833,12 +807,12 @@ function BuildingDetail() {
                     value={activityForm.targetChildren}
                     onChange={(e) => setActivityForm({ ...activityForm, targetChildren: e.target.value })}
                   >
-                    <option value="none">Just this {activityContext.scope}</option>
+                    <option value="none">Just the selected {activityContext.scope}(s)</option>
                     {['building', 'level', 'wing'].includes(activityContext.scope) && (
-                      <option value="spaces">Every Space inside this {activityContext.scope}</option>
+                      <option value="spaces">Every Space inside the selected {activityContext.scope}(s)</option>
                     )}
                     {['building', 'level'].includes(activityContext.scope) && (
-                      <option value="wings">Every Wing inside this {activityContext.scope}</option>
+                      <option value="wings">Every Wing inside the selected {activityContext.scope}(s)</option>
                     )}
                     {activityContext.scope === 'building' && (
                       <option value="levels">Every Level inside this Building</option>
@@ -872,46 +846,6 @@ function BuildingDetail() {
         )}
       </div>
     </ProjectGuard>
-  );
-}
-
-function ActivityItem({ activity, isEditing, onEdit, onCancelEdit, onUpdateProgress, onUpdateStatus, onDelete, canEdit, canDelete, getActivityStatusDisplay, getActivityStatusColor, getStatusIcon }) {
-  const [progress, setProgress] = useState(activity.progress || 0);
-  const handleSaveProgress = () => { if (progress < 0 || progress > 100) return alert('0 to 100 only'); onUpdateProgress(progress); };
-
-  return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4 hover:shadow-md transition-shadow">
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-900 dark:text-white">{activity.order ? `${activity.order}.` : ''} {activity.name}</span>
-            {activity.code && <span className="text-xs text-gray-400 dark:text-gray-500">{activity.code}</span>}
-            <Badge size="sm" className={getActivityStatusColor(activity.status)}>
-              <span className="flex items-center gap-1">{getStatusIcon(activity.status)}{getActivityStatusDisplay(activity.status)}</span>
-            </Badge>
-          </div>
-          {activity.description && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{activity.description}</p>}
-        </div>
-
-        <div className="flex items-center gap-3">
-          {isEditing ? (
-            <div className="flex items-center gap-2">
-              <input type="number" min="0" max="100" value={progress} onChange={(e) => setProgress(Math.min(100, Math.max(0, parseInt(e.target.value) || 0)))} className="w-16 px-2 py-1 border rounded-lg text-center text-sm" />
-              <span className="text-sm text-gray-500">%</span>
-              <Button size="sm" variant="primary" onClick={handleSaveProgress}>Save</Button>
-              <Button size="sm" variant="ghost" onClick={onCancelEdit}>Cancel</Button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-3 min-w-[120px]">
-              <div className="w-20"><ProgressBar value={activity.progress || 0} showLabel={false} /></div>
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300 min-w-[40px]">{activity.progress || 0}%</span>
-              {canEdit && <button onClick={onEdit} className="p-1 rounded-lg hover:bg-gray-100 transition-colors"><Edit2 size={14} className="text-gray-400 hover:text-primary-500" /></button>}
-              {canDelete && <button onClick={onDelete} className="p-1 rounded-lg hover:bg-red-100 transition-colors"><XCircle size={14} className="text-gray-400 hover:text-red-500" /></button>}
-            </div>
-          )}
-        </div>
-      </div>
-    </motion.div>
   );
 }
 
